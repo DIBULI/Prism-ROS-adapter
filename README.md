@@ -1,5 +1,7 @@
 # Prism ROS Adapter
 
+[![ROS release tag test](https://github.com/DIBULI/Prism-ROS-adapter/actions/workflows/release-tag-test.yml/badge.svg)](https://github.com/DIBULI/Prism-ROS-adapter/actions/workflows/release-tag-test.yml)
+
 Prism ROS Adapter exposes a DIBULI Prism connected through the Prism USB SDK
 as standard ROS topics. The repository contains one ROS-independent USB driver
 core and native wrappers for ROS 1 and ROS 2.
