@@ -1,0 +1,123 @@
+name: ROS release tag test
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ros-release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  common-test:
+    name: Common tests
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout adapter
+        uses: actions/checkout@v4
+
+      - name: Validate release version
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag_version="${GITHUB_REF_NAME#v}"
+          mapfile -t package_versions < <(
+            sed -n 's:.*<version>\([^<]*\)</version>.*:\1:p' \
+              ros1_ws/src/prism_ros_driver/package.xml \
+              ros1_ws/src/prism_ros_msgs/package.xml \
+              ros2_ws/src/prism_ros_driver/package.xml \
+              ros2_ws/src/prism_ros_msgs/package.xml
+          )
+          test "${#package_versions[@]}" -eq 4
+          for package_version in "${package_versions[@]}"; do
+            test "${package_version}" = "${tag_version}" || {
+              echo "Tag ${GITHUB_REF_NAME} does not match package version ${package_version}" >&2
+              exit 1
+            }
+          done
+
+      - name: Check shell scripts
+        shell: bash
+        run: bash -n scripts/*.sh docker/*.sh
+
+      - name: Configure common tests
+        run: cmake -S . -B build-common -DBUILD_TESTING=ON
+
+      - name: Build common tests
+        run: cmake --build build-common --parallel
+
+      - name: Run common tests
+        run: ctest --test-dir build-common --output-on-failure
+
+  ros-build:
+    name: ${{ matrix.generation }} ${{ matrix.distro }}
+    needs: common-test
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        include:
+          - generation: ROS 1
+            distro: noetic
+          - generation: ROS 2
+            distro: humble
+          - generation: ROS 2
+            distro: jazzy
+          - generation: ROS 2
+            distro: kilted
+          - generation: ROS 2
+            distro: lyrical
+          - generation: ROS 2
+            distro: rolling
+    steps:
+      - name: Checkout adapter
+        uses: actions/checkout@v4
+
+      - name: Load locked SDK revision
+        id: sdk-lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          source .github/prism-agent.lock
+          {
+            echo "repository=${PRISM_AGENT_REPOSITORY}"
+            echo "commit=${PRISM_AGENT_COMMIT}"
+            echo "sdk_version=${PRISM_USB_SDK_VERSION}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Checkout locked Prism USB SDK
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.sdk-lock.outputs.repository }}
+          ref: ${{ steps.sdk-lock.outputs.commit }}
+          path: prism-agent
+          ssh-key: ${{ secrets.PRISM_AGENT_SSH_KEY }}
+          persist-credentials: false
+          sparse-checkout: prism-sdk/usb-sdk
+          sparse-checkout-cone-mode: true
+
+      - name: Verify USB SDK version lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk_cmake=prism-agent/prism-sdk/usb-sdk/CMakeLists.txt
+          test -f "${sdk_cmake}"
+          grep -Eq \
+            "project\\([^)]*VERSION[[:space:]]+${{ steps.sdk-lock.outputs.sdk_version }}([[:space:]]|\\))" \
+            "${sdk_cmake}"
+
+      - name: Build ${{ matrix.distro }} container
+        env:
+          DOCKER_BUILDKIT: "1"
+          PRISM_USB_SDK_SOURCE: ${{ github.workspace }}/prism-agent/prism-sdk/usb-sdk
+        run: ./scripts/docker_build.sh "${{ matrix.distro }}"
+
+      - name: Smoke-test ${{ matrix.distro }} container
+        run: ./scripts/docker_smoke_test.sh "${{ matrix.distro }}"

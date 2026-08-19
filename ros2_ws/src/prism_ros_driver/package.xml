@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>prism_ros_driver</name>
+  <version>0.1.0</version>
+  <description>ROS 2 adapter for the DIBULI Prism USB SDK.</description>
+  <maintainer email="support@dibuli.com">DIBULI</maintainer>
+  <license>Proprietary</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>diagnostic_msgs</depend>
+  <depend>prism_ros_msgs</depend>
+  <depend>rclcpp</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+</package>

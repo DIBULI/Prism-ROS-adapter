@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+DISTRO="${1:-}"
+
+check_linkage() {
+  local image="$1"
+  local node="$2"
+  docker run --rm "${image}" bash -lc "
+    set -euo pipefail
+    test -x '${node}'
+    if ldd '${node}' | grep -q 'not found'; then
+      ldd '${node}' >&2
+      exit 1
+    fi
+  "
+}
+
+case "${DISTRO}" in
+  noetic)
+    docker run --rm prism-ros-adapter:noetic bash -lc '
+      set -euo pipefail
+      rospack find prism_ros_driver >/dev/null
+      rosmsg show prism_ros_msgs/CameraFrameMetadata |
+        grep -q "uint32\[4\] exposure_us"
+      test -f "$(rospack find prism_ros_driver)/launch/prism.launch"
+    '
+    check_linkage prism-ros-adapter:noetic \
+      /opt/prism-ros1/lib/prism_ros_driver/prism_ros_driver_node
+    ;;
+  humble|jazzy|kilted|lyrical|rolling)
+    docker run --rm "prism-ros-adapter:${DISTRO}" bash -lc '
+      set -euo pipefail
+      ros2 pkg prefix prism_ros_driver >/dev/null
+      ros2 interface show prism_ros_msgs/msg/CameraFrameMetadata |
+        grep -q "uint32\[4\] exposure_us"
+      ros2 launch prism_ros_driver prism.launch.py --show-args >/dev/null
+    '
+    check_linkage "prism-ros-adapter:${DISTRO}" \
+      /opt/prism-ros2/lib/prism_ros_driver/prism_ros_driver_node
+    ;;
+  *)
+    echo "usage: $0 [noetic|humble|jazzy|kilted|lyrical|rolling]" >&2
+    exit 2
+    ;;
+esac

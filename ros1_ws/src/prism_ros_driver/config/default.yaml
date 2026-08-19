@@ -1,0 +1,14 @@
+device_serial: ""
+topic_prefix: "/prism"
+camera_enabled: true
+camera_fps: 0
+board_imu_enabled: true
+imu_sensor_count: 0
+imu_rate_hz: 0
+lidar_enabled: true
+lidar_model: "mid360"
+require_synchronized_timestamps: true
+camera_frame_prefix: "prism_camera_"
+board_imu_frame_prefix: "prism_imu_"
+lidar_frame: "prism_lidar"
+lidar_imu_frame: "prism_lidar_imu"
