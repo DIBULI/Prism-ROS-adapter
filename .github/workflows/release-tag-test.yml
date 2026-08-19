@@ -81,7 +81,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Load locked SDK revision
-        id: sdk-lock
+        id: sdk_lock
         shell: bash
         run: |
           set -euo pipefail
@@ -95,8 +95,8 @@ jobs:
       - name: Checkout locked Prism USB SDK
         uses: actions/checkout@v4
         with:
-          repository: ${{ steps.sdk-lock.outputs.repository }}
-          ref: ${{ steps.sdk-lock.outputs.commit }}
+          repository: ${{ steps.sdk_lock.outputs.repository }}
+          ref: ${{ steps.sdk_lock.outputs.commit }}
           path: prism-agent
           ssh-key: ${{ secrets.PRISM_AGENT_SSH_KEY }}
           persist-credentials: false
@@ -110,7 +110,7 @@ jobs:
           sdk_cmake=prism-agent/prism-sdk/usb-sdk/CMakeLists.txt
           test -f "${sdk_cmake}"
           grep -Eq \
-            "project\\([^)]*VERSION[[:space:]]+${{ steps.sdk-lock.outputs.sdk_version }}([[:space:]]|\\))" \
+            "project\\([^)]*VERSION[[:space:]]+${{ steps.sdk_lock.outputs.sdk_version }}([[:space:]]|\\))" \
             "${sdk_cmake}"
 
       - name: Build ${{ matrix.distro }} container
