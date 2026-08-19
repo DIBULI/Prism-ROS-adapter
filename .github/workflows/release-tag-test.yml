@@ -46,6 +46,9 @@ jobs:
         shell: bash
         run: bash -n scripts/*.sh docker/*.sh
 
+      - name: Verify vendored Prism USB SDK
+        run: bash scripts/verify_vendored_sdk.sh all
+
       - name: Configure common tests
         run: cmake -S . -B build-common -DBUILD_TESTING=ON
 
@@ -80,43 +83,12 @@ jobs:
       - name: Checkout adapter
         uses: actions/checkout@v4
 
-      - name: Load locked SDK revision
-        id: sdk_lock
-        shell: bash
-        run: |
-          set -euo pipefail
-          source .github/prism-agent.lock
-          {
-            echo "repository=${PRISM_AGENT_REPOSITORY}"
-            echo "commit=${PRISM_AGENT_COMMIT}"
-            echo "sdk_version=${PRISM_USB_SDK_VERSION}"
-          } >> "${GITHUB_OUTPUT}"
-
-      - name: Checkout locked Prism USB SDK
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ steps.sdk_lock.outputs.repository }}
-          ref: ${{ steps.sdk_lock.outputs.commit }}
-          path: prism-agent
-          ssh-key: ${{ secrets.PRISM_AGENT_SSH_KEY }}
-          persist-credentials: false
-          sparse-checkout: prism-sdk/usb-sdk
-          sparse-checkout-cone-mode: true
-
-      - name: Verify USB SDK version lock
-        shell: bash
-        run: |
-          set -euo pipefail
-          sdk_cmake=prism-agent/prism-sdk/usb-sdk/CMakeLists.txt
-          test -f "${sdk_cmake}"
-          grep -Eq \
-            "project\\([^)]*VERSION[[:space:]]+${{ steps.sdk_lock.outputs.sdk_version }}([[:space:]]|\\))" \
-            "${sdk_cmake}"
+      - name: Verify ${{ matrix.distro }} vendored SDK
+        run: bash scripts/verify_vendored_sdk.sh "${{ matrix.distro }}"
 
       - name: Build ${{ matrix.distro }} container
         env:
           DOCKER_BUILDKIT: "1"
-          PRISM_USB_SDK_SOURCE: ${{ github.workspace }}/prism-agent/prism-sdk/usb-sdk
         run: ./scripts/docker_build.sh "${{ matrix.distro }}"
 
       - name: Smoke-test ${{ matrix.distro }} container

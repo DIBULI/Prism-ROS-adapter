@@ -1,0 +1,3 @@
+# Prism FunctionFS bulk device. TAG+=uaccess grants the active desktop user
+# access without running the SDK or Viewer as root.
+SUBSYSTEM=="usb", ATTR{idVendor}=="2207", ATTR{idProduct}=="1201", MODE="0660", GROUP="plugdev", TAG+="uaccess"

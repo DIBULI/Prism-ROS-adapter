@@ -4,7 +4,8 @@
 
 Prism ROS Adapter exposes a DIBULI Prism connected through the Prism USB SDK
 as standard ROS topics. The repository contains one ROS-independent USB driver
-core and native wrappers for ROS 1 and ROS 2.
+core, native wrappers for ROS 1 and ROS 2, and the runtime-only Prism USB SDK
+payloads needed to build them on the supported Ubuntu releases.
 
 ## Supported ROS releases
 
@@ -18,8 +19,40 @@ core and native wrappers for ROS 1 and ROS 2.
 | ROS 2 | Rolling Ridley | Ubuntu 26.04 currently | Supported, continuously changing |
 
 ROS 1 releases other than Noetic and end-of-life ROS 2 releases are not
-supported. The Docker images build the Prism USB SDK inside the matching base
-operating system, which avoids mixing incompatible glibc/OpenSSL binaries.
+supported. Each ROS distribution uses the Prism USB SDK binary built for its
+base operating system, which avoids mixing incompatible glibc/OpenSSL
+binaries.
+
+## Vendored Prism USB SDK
+
+This repository pins Prism USB SDK `0.11.0` under
+`vendor/prism-usb-sdk/0.11.0`. The vendored payload contains only:
+
+- public SDK headers;
+- the platform-specific `libprism_usb_sdk.so` dynamic library;
+- exported CMake package configuration files; and
+- the Prism USB udev rule.
+
+The Prism Agent and USB SDK implementation source are not included. Neither
+the local Docker build nor release CI checks out or compiles Agent SDK source.
+The supported binary mapping is:
+
+| ROS distribution | Vendored SDK directory |
+| --- | --- |
+| Noetic | `ubuntu-20.04-x86_64` |
+| Humble | `ubuntu-22.04-x86_64` |
+| Jazzy, Kilted | `ubuntu-24.04-x86_64` |
+| Lyrical, Rolling | `ubuntu-26.04-x86_64` |
+
+All four payloads were produced from Prism USB SDK `0.11.0` at source commit
+`e4120a1342d9ca937fd707fe36e8463df4b32185`. See
+`vendor/prism-usb-sdk/0.11.0/ORIGIN.md` for provenance. Verify every payload
+file from the SDK version directory with:
+
+```bash
+cd vendor/prism-usb-sdk/0.11.0
+sha256sum --check SHA256SUMS
+```
 
 ## Published topics
 
@@ -57,8 +90,18 @@ calibration is not invented by the driver; publish the calibrated
 
 1. Prism Agent and Host USB SDK must have exactly the same version. This
    adapter currently requires Prism USB SDK `0.11.0`.
-2. Install a USB SDK build made for the same Linux distribution under
-   `/opt/prism-sdk` (headers, library and CMake package files).
+2. Select the vendored SDK directory for the host using the table above and
+   install that complete binary prefix under `/opt/prism-sdk`. For example,
+   for ROS 2 Jazzy or Kilted:
+
+   ```bash
+   PRISM_SDK_PREFIX=vendor/prism-usb-sdk/0.11.0/ubuntu-24.04-x86_64
+   sudo mkdir -p /opt/prism-sdk
+   sudo cp -a "${PRISM_SDK_PREFIX}/." /opt/prism-sdk/
+   ```
+
+   Do not mix a dynamic library from one Ubuntu release with another
+   release's headers or CMake files.
 3. Install the SDK udev rule and reconnect the USB cable:
 
    ```bash
@@ -170,10 +213,17 @@ adapter starts. The ROS adapter does not alter `end0` or LiDAR IP settings.
 
 ## Docker build
 
-Docker builds the USB SDK from source inside every ROS base image. On the
-internal build server the SDK source defaults to
-`/work/projects/Prism-agent/prism-sdk/usb-sdk`; override it with
-`PRISM_USB_SDK_SOURCE` when needed.
+Docker automatically selects the matching binary SDK prefix from
+`vendor/prism-usb-sdk/0.11.0` and copies it into the ROS image. It never needs
+the Prism Agent repository and never compiles the USB SDK. To test an
+alternative binary-only SDK prefix, set `PRISM_USB_SDK_ROOT`; the directory
+must contain the public headers, dynamic library, CMake package files and udev
+rule:
+
+```bash
+PRISM_USB_SDK_ROOT=/path/to/prism-sdk-prefix \
+  ./scripts/docker_build.sh jazzy
+```
 
 The build script first pulls ROS base images through `docker.1ms.run` and then
 tags them with the standard `ros:*` name. It falls back to DaoCloud if the
@@ -263,15 +313,10 @@ container.
 Pushing a tag matching `v*` runs `.github/workflows/release-tag-test.yml`.
 The workflow checks that the tag version matches all four ROS package
 manifests, runs the ROS-independent unit tests, then builds and smoke-tests
-ROS 1 Noetic and every supported ROS 2 distribution. The USB SDK dependency is
-locked to an exact private `DIBULI/Prism-agent` commit in
-`.github/prism-agent.lock`.
-
-The repository must define an Actions secret named
-`PRISM_AGENT_SSH_KEY`. It is a read-only deploy key for the private
-`DIBULI/Prism-agent` repository. The workflow uses it only to sparse-checkout
-`prism-sdk/usb-sdk`; credentials and SDK source are not included in this
-repository.
+ROS 1 Noetic and every supported ROS 2 distribution. It verifies the vendored
+SDK checksums and binary-only boundary before building. The workflow uses only
+the headers and platform-specific dynamic libraries in this repository; no
+cross-repository credential, deploy key or SDK source checkout is required.
 
 GitHub-hosted runners have no Prism USB device or Mid-360. They verify source
 compatibility, package installation, message interfaces, launch descriptions
