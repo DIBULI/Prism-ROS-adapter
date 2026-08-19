@@ -21,8 +21,8 @@ case "${DISTRO}" in
     docker run --rm prism-ros-adapter:noetic bash -lc '
       set -euo pipefail
       rospack find prism_ros_driver >/dev/null
-      rosmsg show prism_ros_msgs/CameraFrameMetadata |
-        grep -q "uint32\[4\] exposure_us"
+      interface_text="$(rosmsg show prism_ros_msgs/CameraFrameMetadata)"
+      grep -q "uint32\[4\] exposure_us" <<<"${interface_text}"
       test -f "$(rospack find prism_ros_driver)/launch/prism.launch"
     '
     check_linkage prism-ros-adapter:noetic \
@@ -32,8 +32,8 @@ case "${DISTRO}" in
     docker run --rm "prism-ros-adapter:${DISTRO}" bash -lc '
       set -euo pipefail
       ros2 pkg prefix prism_ros_driver >/dev/null
-      ros2 interface show prism_ros_msgs/msg/CameraFrameMetadata |
-        grep -q "uint32\[4\] exposure_us"
+      interface_text="$(ros2 interface show prism_ros_msgs/msg/CameraFrameMetadata)"
+      grep -q "uint32\[4\] exposure_us" <<<"${interface_text}"
       ros2 launch prism_ros_driver prism.launch.py --show-args >/dev/null
     '
     check_linkage "prism-ros-adapter:${DISTRO}" \
