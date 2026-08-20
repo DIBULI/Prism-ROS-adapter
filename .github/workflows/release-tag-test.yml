@@ -2,8 +2,13 @@ name: ROS release tag test
 
 on:
   push:
+    branches:
+      - master
     tags:
       - "v*"
+  pull_request:
+    branches:
+      - master
   workflow_dispatch:
 
 permissions:
@@ -20,9 +25,12 @@ jobs:
     steps:
       - name: Checkout adapter
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
 
       - name: Validate release version
-        if: github.event_name == 'push'
+        if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: |
           set -euo pipefail
@@ -46,8 +54,8 @@ jobs:
         shell: bash
         run: bash -n scripts/*.sh docker/*.sh
 
-      - name: Verify vendored Prism USB SDK
-        run: bash scripts/verify_vendored_sdk.sh all
+      - name: Verify Prism SDK submodule
+        run: bash scripts/verify_sdk_submodule.sh all
 
       - name: Configure common tests
         run: cmake -S . -B build-common -DBUILD_TESTING=ON
@@ -82,9 +90,12 @@ jobs:
     steps:
       - name: Checkout adapter
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
 
-      - name: Verify ${{ matrix.distro }} vendored SDK
-        run: bash scripts/verify_vendored_sdk.sh "${{ matrix.distro }}"
+      - name: Verify ${{ matrix.distro }} SDK runtime
+        run: bash scripts/verify_sdk_submodule.sh "${{ matrix.distro }}"
 
       - name: Build ${{ matrix.distro }} container
         env:
@@ -93,3 +104,39 @@ jobs:
 
       - name: Smoke-test ${{ matrix.distro }} container
         run: ./scripts/docker_smoke_test.sh "${{ matrix.distro }}"
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [common-test, ros-build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout adapter and SDK
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Package recursive source release
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          package="Prism-ROS-adapter-${version}"
+          mkdir -p "$RUNNER_TEMP/$package"
+          tar --exclude-vcs --exclude='./build-*' -cf - . \
+            | tar -C "$RUNNER_TEMP/$package" -xf -
+          tar -C "$RUNNER_TEMP" -czf "$package.tar.gz" "$package"
+          sha256sum "$package.tar.gz" > "$package.tar.gz.sha256"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            Prism-ROS-adapter-*.tar.gz \
+            Prism-ROS-adapter-*.tar.gz.sha256 \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --generate-notes

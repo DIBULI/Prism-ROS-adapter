@@ -2,9 +2,10 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SDK_VERSION="0.11.0"
-SDK_VENDOR_ROOT="${ROOT_DIR}/vendor/prism-usb-sdk/${SDK_VERSION}"
-SDK_ROOT_OVERRIDE="${PRISM_USB_SDK_ROOT:-}"
+SDK_VERSION="1.0.0"
+SDK_REPOSITORY_ROOT="${PRISM_USB_SDK_ROOT:-${ROOT_DIR}/third_party/Prism-SDK}"
+SDK_PREFIX_ROOT="${SDK_REPOSITORY_ROOT}/runtime/ros"
+SDK_PREFIX_OVERRIDE="${PRISM_USB_SDK_PREFIX:-}"
 IMAGE_MIRROR="${PRISM_DOCKER_MIRROR:-docker.1ms.run/library}"
 IMAGE_MIRROR_FALLBACK="${PRISM_DOCKER_MIRROR_FALLBACK:-docker.m.daocloud.io/library}"
 PULL_TIMEOUT_SECONDS="${PRISM_DOCKER_PULL_TIMEOUT_SECONDS:-900}"
@@ -89,10 +90,10 @@ sdk_root_for_distro() {
   local distro="$1"
   local sdk_root
 
-  if [[ -n "${SDK_ROOT_OVERRIDE}" ]]; then
-    sdk_root="${SDK_ROOT_OVERRIDE}"
+  if [[ -n "${SDK_PREFIX_OVERRIDE}" ]]; then
+    sdk_root="${SDK_PREFIX_OVERRIDE}"
   else
-    sdk_root="${SDK_VENDOR_ROOT}/$(sdk_platform_for_distro "${distro}")"
+    sdk_root="${SDK_PREFIX_ROOT}/$(sdk_platform_for_distro "${distro}")"
   fi
 
   validate_sdk_root "${sdk_root}"
@@ -134,8 +135,8 @@ build_ros2() {
 }
 
 TARGET="${1:-all}"
-if [[ "${TARGET}" == "all" && -n "${SDK_ROOT_OVERRIDE}" ]]; then
-  echo "PRISM_USB_SDK_ROOT names one binary prefix; select one ROS distribution instead of 'all'" >&2
+if [[ "${TARGET}" == "all" && -n "${SDK_PREFIX_OVERRIDE}" ]]; then
+  echo "PRISM_USB_SDK_PREFIX names one binary prefix; select one ROS distribution instead of 'all'" >&2
   exit 2
 fi
 

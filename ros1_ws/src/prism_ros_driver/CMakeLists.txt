@@ -8,7 +8,7 @@ find_package(catkin REQUIRED COMPONENTS
   sensor_msgs
   std_msgs
 )
-find_package(PrismUsbSdk 0.11.0 EXACT CONFIG REQUIRED)
+find_package(PrismUsbSdk 1.0.0 EXACT CONFIG REQUIRED)
 
 catkin_package(CATKIN_DEPENDS
   diagnostic_msgs prism_ros_msgs roscpp sensor_msgs std_msgs)

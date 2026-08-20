@@ -7,7 +7,7 @@ find_package(prism_ros_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
-find_package(PrismUsbSdk 0.11.0 EXACT CONFIG REQUIRED)
+find_package(PrismUsbSdk 1.0.0 EXACT CONFIG REQUIRED)
 
 add_executable(prism_ros_driver_node
   src/prism_ros2_node.cpp

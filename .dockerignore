@@ -1,7 +1,7 @@
 .git
 .DS_Store
 build-common
-vendor/prism-usb-sdk
+third_party/Prism-SDK
 **/build
 **/devel
 **/install
