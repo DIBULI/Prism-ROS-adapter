@@ -1,0 +1,6 @@
+bool confirm
+bool enabled
+---
+bool success
+string message
+WifiHotspotStatus status

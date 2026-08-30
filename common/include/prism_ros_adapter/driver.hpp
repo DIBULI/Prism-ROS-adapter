@@ -67,6 +67,108 @@ struct SystemTimeSyncState {
   std::string rtc_device;
 };
 
+struct DeviceState {
+  std::string host_sdk_version;
+  std::string agent_version;
+  std::string sensor_board_version;
+  std::string combined_version;
+  uint16_t agent_protocol_version = 0;
+  std::string product_serial;
+  std::string usb_serial;
+  uint16_t vendor_id = 0;
+  uint16_t product_id = 0;
+  uint16_t info_version = 0;
+  std::string usb_speed;
+  bool usb3_connected = false;
+  bool sensor_board_online = false;
+  bool sensor_board_time_synced = false;
+  uint8_t detected_camera_count = 0;
+  uint8_t detected_imu_count = 0;
+  uint8_t camera_present_mask = 0;
+  uint8_t camera_streaming_mask = 0;
+  uint8_t imu_present_mask = 0;
+  uint8_t imu_receiving_mask = 0;
+  uint8_t imu_time_synced_mask = 0;
+  uint8_t imu_init_error_mask = 0;
+  std::array<std::string, 2> imu_init_error_reason;
+  uint16_t camera_fps = 0;
+  uint16_t imu_fps = 0;
+  uint8_t sensor_board_error_code = 0;
+  uint32_t sensor_board_error_flags = 0;
+  std::string sensor_board_error;
+};
+
+struct DeviceConfigurationState {
+  uint32_t camera_fps = 0;
+  uint32_t imu_rate_hz = 0;
+  uint32_t mjpeg_quality = 0;
+  uint32_t generation = 0;
+  bool persisted = false;
+};
+
+struct LidarStatusState {
+  bool available = false;
+  bool enabled = false;
+  bool connected = false;
+  bool receiving = false;
+  std::string model;
+  uint8_t device_type = 0;
+  uint32_t handle = 0;
+  uint64_t packet_count = 0;
+  uint64_t point_count = 0;
+  uint64_t dropped_point_count = 0;
+  std::string serial;
+  std::string lidar_ip;
+  std::string error;
+};
+
+struct LidarNetworkState {
+  bool enabled = false;
+  std::string host_ip;
+  std::string netmask;
+  std::string lidar_ip;
+  bool interface_present = false;
+  bool link_up = false;
+  bool address_applied = false;
+  bool same_subnet = false;
+  bool target_reachable = false;
+  bool persisted = false;
+  int32_t error_code = 0;
+  uint32_t generation = 0;
+  std::string interface_name;
+  std::string error;
+};
+
+enum class StreamCommand {
+  Start,
+  Stop,
+  Restart,
+};
+
+struct StreamState {
+  bool camera_enabled = false;
+  bool board_imu_enabled = false;
+  bool lidar_enabled = false;
+  bool camera_active = false;
+  bool board_imu_active = false;
+  bool lidar_active = false;
+  std::string lidar_model;
+};
+
+struct WifiHotspotState {
+  bool present = false;
+  bool enabled = false;
+  bool running = false;
+  bool access_point_running = false;
+  bool dhcp_running = false;
+  bool persisted = false;
+  int32_t error_code = 0;
+  std::string interface_name;
+  std::string ssid;
+  std::string address;
+  std::string error;
+};
+
 struct CameraFrameSet {
   uint64_t timestamp_ns = 0;
   uint32_t host_frame_id = 0;
@@ -167,6 +269,22 @@ class Driver {
                                         uint32_t min_gain_x1024,
                                         uint32_t max_gain_x1024);
   SystemTimeSyncState synchronizeSystemTime();
+  DeviceState getDeviceInfo();
+  DeviceConfigurationState getDeviceConfiguration();
+  DeviceConfigurationState setDeviceConfiguration(
+      bool set_camera_fps, uint32_t camera_fps, bool set_imu_rate_hz,
+      uint32_t imu_rate_hz, bool set_mjpeg_quality, uint32_t mjpeg_quality);
+  LidarStatusState getLidarStatus();
+  LidarNetworkState getLidarNetwork();
+  LidarNetworkState setLidarNetwork(bool enabled, std::string host_ip,
+                                    std::string netmask,
+                                    std::string lidar_ip);
+  LidarNetworkState probeLidarNetwork();
+  StreamState getStreamState();
+  StreamState controlStreams(StreamCommand command, bool camera,
+                             bool board_imu, bool lidar);
+  WifiHotspotState getWifiHotspot();
+  WifiHotspotState setWifiHotspot(bool enabled);
 
  private:
   struct Impl;

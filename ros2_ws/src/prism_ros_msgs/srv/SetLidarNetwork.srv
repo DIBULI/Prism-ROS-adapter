@@ -1,0 +1,9 @@
+bool confirm
+bool enabled
+string host_ip
+string netmask
+string lidar_ip
+---
+bool success
+string message
+LidarNetworkStatus status

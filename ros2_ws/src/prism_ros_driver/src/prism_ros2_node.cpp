@@ -4,10 +4,21 @@
 #include <diagnostic_msgs/msg/diagnostic_status.hpp>
 #include <diagnostic_msgs/msg/key_value.hpp>
 #include <prism_ros_msgs/msg/camera_frame_metadata.hpp>
+#include <prism_ros_msgs/srv/control_streams.hpp>
+#include <prism_ros_msgs/srv/get_device_configuration.hpp>
+#include <prism_ros_msgs/srv/get_device_info.hpp>
 #include <prism_ros_msgs/srv/get_exposure.hpp>
+#include <prism_ros_msgs/srv/get_lidar_network.hpp>
+#include <prism_ros_msgs/srv/get_lidar_status.hpp>
+#include <prism_ros_msgs/srv/get_stream_state.hpp>
+#include <prism_ros_msgs/srv/get_wifi_hotspot.hpp>
+#include <prism_ros_msgs/srv/probe_lidar_network.hpp>
 #include <prism_ros_msgs/srv/set_camera_exposure.hpp>
+#include <prism_ros_msgs/srv/set_device_configuration.hpp>
 #include <prism_ros_msgs/srv/set_exposure_limits.hpp>
+#include <prism_ros_msgs/srv/set_lidar_network.hpp>
 #include <prism_ros_msgs/srv/set_target_brightness.hpp>
+#include <prism_ros_msgs/srv/set_wifi_hotspot.hpp>
 #include <prism_ros_msgs/srv/sync_system_time.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/compressed_image.hpp>
@@ -74,6 +85,125 @@ template <typename Response>
 void failService(Response& response, const std::exception& error) {
   response.success = false;
   response.message = error.what();
+}
+
+template <typename Message>
+void fillDeviceInfo(Message& message,
+                    const prism_ros_adapter::DeviceState& state) {
+  message.host_sdk_version = state.host_sdk_version;
+  message.agent_version = state.agent_version;
+  message.sensor_board_version = state.sensor_board_version;
+  message.combined_version = state.combined_version;
+  message.agent_protocol_version = state.agent_protocol_version;
+  message.product_serial = state.product_serial;
+  message.usb_serial = state.usb_serial;
+  message.vendor_id = state.vendor_id;
+  message.product_id = state.product_id;
+  message.info_version = state.info_version;
+  message.usb_speed = state.usb_speed;
+  message.usb3_connected = state.usb3_connected;
+  message.sensor_board_online = state.sensor_board_online;
+  message.sensor_board_time_synced = state.sensor_board_time_synced;
+  message.detected_camera_count = state.detected_camera_count;
+  message.detected_imu_count = state.detected_imu_count;
+  message.camera_present_mask = state.camera_present_mask;
+  message.camera_streaming_mask = state.camera_streaming_mask;
+  message.imu_present_mask = state.imu_present_mask;
+  message.imu_receiving_mask = state.imu_receiving_mask;
+  message.imu_time_synced_mask = state.imu_time_synced_mask;
+  message.imu_init_error_mask = state.imu_init_error_mask;
+  std::copy(state.imu_init_error_reason.begin(),
+            state.imu_init_error_reason.end(),
+            message.imu_init_error_reason.begin());
+  message.camera_fps = state.camera_fps;
+  message.imu_fps = state.imu_fps;
+  message.sensor_board_error_code = state.sensor_board_error_code;
+  message.sensor_board_error_flags = state.sensor_board_error_flags;
+  message.sensor_board_error = state.sensor_board_error;
+}
+
+template <typename Message>
+void fillDeviceConfiguration(
+    Message& message,
+    const prism_ros_adapter::DeviceConfigurationState& state) {
+  message.camera_fps = state.camera_fps;
+  message.imu_rate_hz = state.imu_rate_hz;
+  message.mjpeg_quality = state.mjpeg_quality;
+  message.generation = state.generation;
+  message.persisted = state.persisted;
+}
+
+template <typename Message>
+void fillLidarStatus(Message& message,
+                     const prism_ros_adapter::LidarStatusState& state) {
+  message.available = state.available;
+  message.enabled = state.enabled;
+  message.connected = state.connected;
+  message.receiving = state.receiving;
+  message.model = state.model;
+  message.device_type = state.device_type;
+  message.handle = state.handle;
+  message.packet_count = state.packet_count;
+  message.point_count = state.point_count;
+  message.dropped_point_count = state.dropped_point_count;
+  message.serial = state.serial;
+  message.lidar_ip = state.lidar_ip;
+  message.error = state.error;
+}
+
+template <typename Message>
+void fillLidarNetwork(Message& message,
+                      const prism_ros_adapter::LidarNetworkState& state) {
+  message.enabled = state.enabled;
+  message.host_ip = state.host_ip;
+  message.netmask = state.netmask;
+  message.lidar_ip = state.lidar_ip;
+  message.interface_present = state.interface_present;
+  message.link_up = state.link_up;
+  message.address_applied = state.address_applied;
+  message.same_subnet = state.same_subnet;
+  message.target_reachable = state.target_reachable;
+  message.persisted = state.persisted;
+  message.error_code = state.error_code;
+  message.generation = state.generation;
+  message.interface_name = state.interface_name;
+  message.error = state.error;
+}
+
+template <typename Message>
+void fillStreamState(Message& message,
+                     const prism_ros_adapter::StreamState& state) {
+  message.camera_enabled = state.camera_enabled;
+  message.board_imu_enabled = state.board_imu_enabled;
+  message.lidar_enabled = state.lidar_enabled;
+  message.camera_active = state.camera_active;
+  message.board_imu_active = state.board_imu_active;
+  message.lidar_active = state.lidar_active;
+  message.lidar_model = state.lidar_model;
+}
+
+template <typename Message>
+void fillWifiHotspot(Message& message,
+                     const prism_ros_adapter::WifiHotspotState& state) {
+  message.present = state.present;
+  message.enabled = state.enabled;
+  message.running = state.running;
+  message.access_point_running = state.access_point_running;
+  message.dhcp_running = state.dhcp_running;
+  message.persisted = state.persisted;
+  message.error_code = state.error_code;
+  message.interface_name = state.interface_name;
+  message.ssid = state.ssid;
+  message.address = state.address;
+  message.error = state.error;
+}
+
+prism_ros_adapter::StreamCommand parseStreamCommand(
+    const std::string& command) {
+  if (command == "start") return prism_ros_adapter::StreamCommand::Start;
+  if (command == "stop") return prism_ros_adapter::StreamCommand::Stop;
+  if (command == "restart") return prism_ros_adapter::StreamCommand::Restart;
+  throw std::invalid_argument("stream command must be start, stop, or restart");
 }
 
 class PrismRos2Node : public rclcpp::Node {
@@ -175,6 +305,19 @@ class PrismRos2Node : public rclcpp::Node {
     using SetCameraExposure = prism_ros_msgs::srv::SetCameraExposure;
     using SetExposureLimits = prism_ros_msgs::srv::SetExposureLimits;
     using SyncSystemTime = prism_ros_msgs::srv::SyncSystemTime;
+    using GetDeviceInfo = prism_ros_msgs::srv::GetDeviceInfo;
+    using GetDeviceConfiguration =
+        prism_ros_msgs::srv::GetDeviceConfiguration;
+    using SetDeviceConfiguration =
+        prism_ros_msgs::srv::SetDeviceConfiguration;
+    using GetLidarStatus = prism_ros_msgs::srv::GetLidarStatus;
+    using GetLidarNetwork = prism_ros_msgs::srv::GetLidarNetwork;
+    using SetLidarNetwork = prism_ros_msgs::srv::SetLidarNetwork;
+    using ProbeLidarNetwork = prism_ros_msgs::srv::ProbeLidarNetwork;
+    using GetStreamState = prism_ros_msgs::srv::GetStreamState;
+    using ControlStreams = prism_ros_msgs::srv::ControlStreams;
+    using GetWifiHotspot = prism_ros_msgs::srv::GetWifiHotspot;
+    using SetWifiHotspot = prism_ros_msgs::srv::SetWifiHotspot;
     get_exposure_service_ =
         create_service<GetExposure>(
             topic(topic_prefix_, "camera/get_exposure"),
@@ -274,6 +417,200 @@ class PrismRos2Node : public rclcpp::Node {
                 response->message = state.verified
                                         ? "device synchronized to host clock"
                                         : "time synchronization was not verified";
+              } catch (const std::exception& error) {
+                failService(*response, error);
+              }
+            });
+    get_device_info_service_ =
+        create_service<GetDeviceInfo>(
+            topic(topic_prefix_, "device/get_info"),
+            [this](const std::shared_ptr<GetDeviceInfo::Request>,
+                   std::shared_ptr<GetDeviceInfo::Response> response) {
+              try {
+                fillDeviceInfo(response->info, driver_->getDeviceInfo());
+                response->success = true;
+                response->message = "ok";
+              } catch (const std::exception& error) {
+                failService(*response, error);
+              }
+            });
+    get_device_configuration_service_ =
+        create_service<GetDeviceConfiguration>(
+            topic(topic_prefix_, "device/get_configuration"),
+            [this](const std::shared_ptr<GetDeviceConfiguration::Request>,
+                   std::shared_ptr<GetDeviceConfiguration::Response> response) {
+              try {
+                fillDeviceConfiguration(response->configuration,
+                                        driver_->getDeviceConfiguration());
+                response->success = true;
+                response->message = "ok";
+              } catch (const std::exception& error) {
+                failService(*response, error);
+              }
+            });
+    set_device_configuration_service_ =
+        create_service<SetDeviceConfiguration>(
+            topic(topic_prefix_, "device/set_configuration"),
+            [this](
+                const std::shared_ptr<SetDeviceConfiguration::Request> request,
+                std::shared_ptr<SetDeviceConfiguration::Response> response) {
+              if (!request->confirm) {
+                response->success = false;
+                response->message =
+                    "set confirm=true to persist the selected device fields";
+                return;
+              }
+              try {
+                const auto state = driver_->setDeviceConfiguration(
+                    request->set_camera_fps, request->camera_fps,
+                    request->set_imu_rate_hz, request->imu_rate_hz,
+                    request->set_mjpeg_quality, request->mjpeg_quality);
+                fillDeviceConfiguration(response->configuration, state);
+                response->success = state.persisted;
+                response->message = state.persisted
+                                        ? "device configuration persisted"
+                                        : "device configuration was not persisted";
+              } catch (const std::exception& error) {
+                failService(*response, error);
+              }
+            });
+    get_lidar_status_service_ =
+        create_service<GetLidarStatus>(
+            topic(topic_prefix_, "lidar/get_status"),
+            [this](const std::shared_ptr<GetLidarStatus::Request>,
+                   std::shared_ptr<GetLidarStatus::Response> response) {
+              try {
+                fillLidarStatus(response->status, driver_->getLidarStatus());
+                response->success = true;
+                response->message = "ok";
+              } catch (const std::exception& error) {
+                failService(*response, error);
+              }
+            });
+    get_lidar_network_service_ =
+        create_service<GetLidarNetwork>(
+            topic(topic_prefix_, "lidar/get_network"),
+            [this](const std::shared_ptr<GetLidarNetwork::Request>,
+                   std::shared_ptr<GetLidarNetwork::Response> response) {
+              try {
+                const auto state = driver_->getLidarNetwork();
+                fillLidarNetwork(response->status, state);
+                response->success = state.error_code == 0;
+                response->message = state.error.empty() ? "ok" : state.error;
+              } catch (const std::exception& error) {
+                failService(*response, error);
+              }
+            });
+    set_lidar_network_service_ =
+        create_service<SetLidarNetwork>(
+            topic(topic_prefix_, "lidar/set_network"),
+            [this](const std::shared_ptr<SetLidarNetwork::Request> request,
+                   std::shared_ptr<SetLidarNetwork::Response> response) {
+              if (!request->confirm) {
+                response->success = false;
+                response->message =
+                    "set confirm=true to persist the LiDAR network settings";
+                return;
+              }
+              try {
+                const auto state = driver_->setLidarNetwork(
+                    request->enabled, request->host_ip, request->netmask,
+                    request->lidar_ip);
+                fillLidarNetwork(response->status, state);
+                response->success = state.persisted && state.error_code == 0;
+                response->message =
+                    state.error.empty()
+                        ? (state.persisted ? "LiDAR network persisted"
+                                           : "LiDAR network was not persisted")
+                        : state.error;
+              } catch (const std::exception& error) {
+                failService(*response, error);
+              }
+            });
+    probe_lidar_network_service_ =
+        create_service<ProbeLidarNetwork>(
+            topic(topic_prefix_, "lidar/probe_network"),
+            [this](const std::shared_ptr<ProbeLidarNetwork::Request>,
+                   std::shared_ptr<ProbeLidarNetwork::Response> response) {
+              try {
+                const auto state = driver_->probeLidarNetwork();
+                fillLidarNetwork(response->status, state);
+                response->success =
+                    state.error_code == 0 && state.target_reachable;
+                response->message =
+                    state.error.empty()
+                        ? (state.target_reachable ? "LiDAR is reachable"
+                                                  : "LiDAR is not reachable")
+                        : state.error;
+              } catch (const std::exception& error) {
+                failService(*response, error);
+              }
+            });
+    get_stream_state_service_ =
+        create_service<GetStreamState>(
+            topic(topic_prefix_, "streams/get_state"),
+            [this](const std::shared_ptr<GetStreamState::Request>,
+                   std::shared_ptr<GetStreamState::Response> response) {
+              try {
+                fillStreamState(response->state, driver_->getStreamState());
+                response->success = true;
+                response->message = "ok";
+              } catch (const std::exception& error) {
+                failService(*response, error);
+              }
+            });
+    control_streams_service_ =
+        create_service<ControlStreams>(
+            topic(topic_prefix_, "streams/control"),
+            [this](const std::shared_ptr<ControlStreams::Request> request,
+                   std::shared_ptr<ControlStreams::Response> response) {
+              try {
+                const auto command = parseStreamCommand(request->command);
+                fillStreamState(
+                    response->state,
+                    driver_->controlStreams(command, request->camera,
+                                            request->board_imu,
+                                            request->lidar));
+                response->success = true;
+                response->message = "stream command completed";
+              } catch (const std::exception& error) {
+                failService(*response, error);
+              }
+            });
+    get_wifi_hotspot_service_ =
+        create_service<GetWifiHotspot>(
+            topic(topic_prefix_, "wifi/get_hotspot"),
+            [this](const std::shared_ptr<GetWifiHotspot::Request>,
+                   std::shared_ptr<GetWifiHotspot::Response> response) {
+              try {
+                const auto state = driver_->getWifiHotspot();
+                fillWifiHotspot(response->status, state);
+                response->success = state.error_code == 0;
+                response->message = state.error.empty() ? "ok" : state.error;
+              } catch (const std::exception& error) {
+                failService(*response, error);
+              }
+            });
+    set_wifi_hotspot_service_ =
+        create_service<SetWifiHotspot>(
+            topic(topic_prefix_, "wifi/set_hotspot"),
+            [this](const std::shared_ptr<SetWifiHotspot::Request> request,
+                   std::shared_ptr<SetWifiHotspot::Response> response) {
+              if (!request->confirm) {
+                response->success = false;
+                response->message =
+                    "set confirm=true to persist the Wi-Fi hotspot setting";
+                return;
+              }
+              try {
+                const auto state = driver_->setWifiHotspot(request->enabled);
+                fillWifiHotspot(response->status, state);
+                response->success = state.persisted && state.error_code == 0;
+                response->message =
+                    state.error.empty()
+                        ? (state.persisted ? "Wi-Fi hotspot setting persisted"
+                                           : "Wi-Fi setting was not persisted")
+                        : state.error;
               } catch (const std::exception& error) {
                 failService(*response, error);
               }
@@ -434,6 +771,28 @@ class PrismRos2Node : public rclcpp::Node {
       set_exposure_limits_service_;
   rclcpp::Service<prism_ros_msgs::srv::SyncSystemTime>::SharedPtr
       sync_system_time_service_;
+  rclcpp::Service<prism_ros_msgs::srv::GetDeviceInfo>::SharedPtr
+      get_device_info_service_;
+  rclcpp::Service<prism_ros_msgs::srv::GetDeviceConfiguration>::SharedPtr
+      get_device_configuration_service_;
+  rclcpp::Service<prism_ros_msgs::srv::SetDeviceConfiguration>::SharedPtr
+      set_device_configuration_service_;
+  rclcpp::Service<prism_ros_msgs::srv::GetLidarStatus>::SharedPtr
+      get_lidar_status_service_;
+  rclcpp::Service<prism_ros_msgs::srv::GetLidarNetwork>::SharedPtr
+      get_lidar_network_service_;
+  rclcpp::Service<prism_ros_msgs::srv::SetLidarNetwork>::SharedPtr
+      set_lidar_network_service_;
+  rclcpp::Service<prism_ros_msgs::srv::ProbeLidarNetwork>::SharedPtr
+      probe_lidar_network_service_;
+  rclcpp::Service<prism_ros_msgs::srv::GetStreamState>::SharedPtr
+      get_stream_state_service_;
+  rclcpp::Service<prism_ros_msgs::srv::ControlStreams>::SharedPtr
+      control_streams_service_;
+  rclcpp::Service<prism_ros_msgs::srv::GetWifiHotspot>::SharedPtr
+      get_wifi_hotspot_service_;
+  rclcpp::Service<prism_ros_msgs::srv::SetWifiHotspot>::SharedPtr
+      set_wifi_hotspot_service_;
   std::unique_ptr<prism_ros_adapter::Driver> driver_;
 };
 

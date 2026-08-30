@@ -55,6 +55,124 @@ prism::LidarModel toSdkModel(LidarModel model) {
                                       : prism::LidarModel::Mid360;
 }
 
+std::string lidarModelName(prism::LidarModel model) {
+  switch (model) {
+    case prism::LidarModel::Mid360:
+      return "mid360";
+    case prism::LidarModel::Mid360S:
+      return "mid360s";
+    case prism::LidarModel::None:
+      return "none";
+  }
+  return "unknown";
+}
+
+std::string lidarModelName(LidarModel model) {
+  return model == LidarModel::Mid360S ? "mid360s" : "mid360";
+}
+
+DeviceState fromSdk(const prism::HelloInfo& hello,
+                    const prism::DeviceVersions& versions,
+                    const prism::DeviceInfo& info) {
+  DeviceState output;
+  output.host_sdk_version = prism::hostSdkVersion();
+  output.agent_version = versions.agent;
+  output.sensor_board_version = versions.sensor_board;
+  output.combined_version = versions.combined;
+  output.agent_protocol_version = hello.protocol_version;
+  output.product_serial = info.product_serial;
+  output.usb_serial = narrow(info.serial_number);
+  output.vendor_id = info.vendor_id;
+  output.product_id = info.product_id;
+  output.info_version = info.info_version;
+  output.usb_speed = prism::usbLinkSpeedName(info.usb_speed);
+  output.usb3_connected = info.usb3_connected;
+  output.sensor_board_online = info.sensor_board_online;
+  output.sensor_board_time_synced = info.sensor_board_time_synced;
+  output.detected_camera_count = info.detected_camera_count;
+  output.detected_imu_count = info.detected_imu_count;
+  output.camera_present_mask = info.camera_present_mask;
+  output.camera_streaming_mask = info.camera_streaming_mask;
+  output.imu_present_mask = info.imu_present_mask;
+  output.imu_receiving_mask = info.imu_receiving_mask;
+  output.imu_time_synced_mask = info.imu_time_synced_mask;
+  output.imu_init_error_mask = info.imu_init_error_mask;
+  for (size_t index = 0; index < output.imu_init_error_reason.size(); ++index) {
+    output.imu_init_error_reason[index] =
+        prism::imuInitErrorReasonName(info.imu_init_error_reason[index]);
+  }
+  output.camera_fps = info.camera_fps;
+  output.imu_fps = info.imu_fps;
+  output.sensor_board_error_code =
+      static_cast<uint8_t>(info.sensor_board_error_code);
+  output.sensor_board_error_flags = info.sensor_board_error_flags;
+  output.sensor_board_error = info.sensor_board_error;
+  return output;
+}
+
+DeviceConfigurationState fromSdk(const prism::DeviceConfiguration& value) {
+  DeviceConfigurationState output;
+  output.camera_fps = value.camera_fps;
+  output.imu_rate_hz = value.imu_rate_hz;
+  output.mjpeg_quality = value.mjpeg_quality;
+  output.generation = value.generation;
+  output.persisted = value.persisted;
+  return output;
+}
+
+LidarStatusState fromSdk(const prism::LidarStatus& value) {
+  LidarStatusState output;
+  output.available = value.available;
+  output.enabled = value.enabled;
+  output.connected = value.connected;
+  output.receiving = value.receiving;
+  output.model = lidarModelName(value.model);
+  output.device_type = value.device_type;
+  output.handle = value.handle;
+  output.packet_count = value.packet_count;
+  output.point_count = value.point_count;
+  output.dropped_point_count = value.dropped_point_count;
+  output.serial = value.serial;
+  output.lidar_ip = value.lidar_ip;
+  output.error = value.error;
+  return output;
+}
+
+LidarNetworkState fromSdk(const prism::LidarNetworkStatus& value) {
+  LidarNetworkState output;
+  output.enabled = value.configuration.enabled;
+  output.host_ip = value.configuration.host_ip;
+  output.netmask = value.configuration.netmask;
+  output.lidar_ip = value.configuration.lidar_ip;
+  output.interface_present = value.interface_present;
+  output.link_up = value.link_up;
+  output.address_applied = value.address_applied;
+  output.same_subnet = value.same_subnet;
+  output.target_reachable = value.target_reachable;
+  output.persisted = value.persisted;
+  output.error_code = value.error_code;
+  output.generation = value.generation;
+  output.interface_name = value.interface_name;
+  output.error = value.error;
+  return output;
+}
+
+WifiHotspotState fromSdk(const prism::WifiHotspotStatus& value) {
+  WifiHotspotState output;
+  output.present = value.present;
+  output.enabled = value.enabled;
+  output.running = value.running;
+  output.access_point_running = value.ap_running;
+  output.dhcp_running = value.dhcp_running;
+  output.persisted = value.persisted;
+  output.error_code = value.error_code;
+  output.interface_name = value.interface_name;
+  output.ssid = value.ssid;
+  output.address = value.address;
+  output.error = value.error;
+  return output;
+}
+
 ExposureState fromSdk(const prism::ExposureConfiguration& value) {
   ExposureState output;
   output.automatic_camera_mask = value.automatic_camera_mask;
@@ -269,7 +387,46 @@ struct Driver::Impl {
     for (auto& command : pending) command.execute(context);
   }
 
+  void ensureStreamObjects(ControlContext& context) {
+    if (config.enable_board_imu && !context.imu_stream) {
+      context.imu_stream = std::make_unique<prism::ImuStream>(
+          context.client, [this](const prism::ImuSample& sample) {
+            dispatchBoardImu(sample);
+          });
+    }
+    if (config.enable_lidar && !context.lidar_stream) {
+      context.lidar_stream = std::make_unique<prism::LidarStream>(
+          context.client,
+          [this](const prism::LidarPointBatch& batch) {
+            dispatchLidarPoints(batch);
+          },
+          [this](const prism::LidarImuSample& sample) {
+            dispatchLidarImu(sample);
+          });
+    }
+  }
+
+  StreamState streamState(const ControlContext& context) const {
+    StreamState output;
+    output.camera_enabled = config.enable_camera;
+    output.board_imu_enabled = config.enable_board_imu;
+    output.lidar_enabled = config.enable_lidar;
+    output.camera_active = context.video_started;
+    output.board_imu_active = context.imu_started;
+    output.lidar_active = context.lidar_started;
+    output.lidar_model = lidarModelName(config.lidar_model);
+    return output;
+  }
+
+  std::string streamStateText(const ControlContext& context) const {
+    return context.video_started || context.imu_started ||
+                   context.lidar_started
+               ? "streaming"
+               : "idle";
+  }
+
   void startConfiguredStreams(ControlContext& context) {
+    ensureStreamObjects(context);
     if (config.enable_camera && !context.video_started) {
       const auto video =
           context.client.startVideo1280x1024(config.camera_fps);
@@ -293,6 +450,59 @@ struct Driver::Impl {
       }
       context.lidar_stream->start(toSdkModel(config.lidar_model));
       context.lidar_started = true;
+    }
+  }
+
+  template <typename Result, typename Function>
+  Result runIdleOperation(ControlContext& context,
+                          const std::string& state_text,
+                          Function function) {
+    publishStatus(state_text);
+    try {
+      stopConfiguredStreams(context);
+    } catch (...) {
+      const auto stop_error = std::current_exception();
+      try {
+        startConfiguredStreams(context);
+        publishStatus(streamStateText(context));
+      } catch (...) {
+        fatal_control_error = "failed to pause streams for " + state_text +
+                              ": " + exceptionText(stop_error) +
+                              "; stream recovery failed: " +
+                              exceptionText(std::current_exception());
+        throw std::runtime_error(fatal_control_error);
+      }
+      std::rethrow_exception(stop_error);
+    }
+
+    camera_assemblies.clear();
+    device_time_resolver.reset();
+    try {
+      Result result = function(context.client);
+      try {
+        startConfiguredStreams(context);
+        publishStatus(streamStateText(context));
+      } catch (...) {
+        fatal_control_error = state_text +
+                              " completed, but stream restart failed: " +
+                              exceptionText(std::current_exception());
+        throw std::runtime_error(fatal_control_error);
+      }
+      return result;
+    } catch (...) {
+      const auto operation_error = std::current_exception();
+      if (!fatal_control_error.empty()) std::rethrow_exception(operation_error);
+      try {
+        startConfiguredStreams(context);
+        publishStatus(streamStateText(context));
+      } catch (...) {
+        fatal_control_error = state_text + " failed: " +
+                              exceptionText(operation_error) +
+                              "; stream recovery failed: " +
+                              exceptionText(std::current_exception());
+        throw std::runtime_error(fatal_control_error);
+      }
+      std::rethrow_exception(operation_error);
     }
   }
 
@@ -339,22 +549,7 @@ struct Driver::Impl {
     if (camera_count == 0 || camera_count > 4) camera_count = 4;
     camera_mask = static_cast<uint8_t>((1u << camera_count) - 1u);
 
-    if (config.enable_board_imu) {
-      context.imu_stream = std::make_unique<prism::ImuStream>(
-          context.client, [this](const prism::ImuSample& sample) {
-            dispatchBoardImu(sample);
-          });
-    }
-    if (config.enable_lidar) {
-      context.lidar_stream = std::make_unique<prism::LidarStream>(
-          context.client,
-          [this](const prism::LidarPointBatch& batch) {
-            dispatchLidarPoints(batch);
-          },
-          [this](const prism::LidarImuSample& sample) {
-            dispatchLidarImu(sample);
-          });
-    }
+    ensureStreamObjects(context);
   }
 
   SystemTimeSyncState synchronizeSystemTime(ControlContext& context) {
@@ -408,6 +603,66 @@ struct Driver::Impl {
     }
     publishStatus("streaming");
     return fromSdk(result);
+  }
+
+  StreamState applyStreamCommand(ControlContext& context,
+                                 StreamCommand command, bool camera,
+                                 bool board_imu, bool lidar) {
+    if (!camera && !board_imu && !lidar) {
+      throw std::invalid_argument("select at least one stream");
+    }
+    if (command == StreamCommand::Restart &&
+        ((camera && !config.enable_camera) ||
+         (board_imu && !config.enable_board_imu) ||
+         (lidar && !config.enable_lidar))) {
+      throw std::invalid_argument("cannot restart a disabled stream");
+    }
+
+    const bool previous_camera = config.enable_camera;
+    const bool previous_board_imu = config.enable_board_imu;
+    const bool previous_lidar = config.enable_lidar;
+    publishStatus("reconfiguring_streams");
+    stopConfiguredStreams(context);
+
+    if (command == StreamCommand::Start) {
+      config.enable_camera = config.enable_camera || camera;
+      config.enable_board_imu = config.enable_board_imu || board_imu;
+      config.enable_lidar = config.enable_lidar || lidar;
+    } else if (command == StreamCommand::Stop) {
+      config.enable_camera = config.enable_camera && !camera;
+      config.enable_board_imu = config.enable_board_imu && !board_imu;
+      config.enable_lidar = config.enable_lidar && !lidar;
+    }
+
+    camera_assemblies.clear();
+    device_time_resolver.reset();
+    try {
+      startConfiguredStreams(context);
+      publishStatus(streamStateText(context));
+      return streamState(context);
+    } catch (...) {
+      const auto operation_error = std::current_exception();
+      try {
+        stopConfiguredStreams(context);
+      } catch (...) {
+      }
+      config.enable_camera = previous_camera;
+      config.enable_board_imu = previous_board_imu;
+      config.enable_lidar = previous_lidar;
+      camera_assemblies.clear();
+      device_time_resolver.reset();
+      try {
+        startConfiguredStreams(context);
+        publishStatus(streamStateText(context));
+      } catch (...) {
+        fatal_control_error = "stream control failed: " +
+                              exceptionText(operation_error) +
+                              "; previous stream state recovery failed: " +
+                              exceptionText(std::current_exception());
+        throw std::runtime_error(fatal_control_error);
+      }
+      std::rethrow_exception(operation_error);
+    }
   }
 
   void log(LogLevel level, const std::string& text) const {
@@ -794,12 +1049,17 @@ struct Driver::Impl {
             handleVideoMeta(client, prism::parseVideoMeta(frame));
           }
         } catch (const std::exception& error) {
-          if (!isTimeout(error) || ++consecutive_timeouts >= 10u) throw;
+          if (!isTimeout(error)) throw;
+          if (!video_started && !imu_started && !lidar_started) {
+            consecutive_timeouts = 0;
+          } else if (++consecutive_timeouts >= 10u) {
+            throw;
+          }
         }
 
         const auto now = std::chrono::steady_clock::now();
         if (now >= next_status) {
-          publishStatus("streaming");
+          publishStatus(streamStateText(control_context));
           next_status = now + std::chrono::seconds(1);
         }
       }
@@ -956,6 +1216,140 @@ ExposureLimitsState Driver::setExposureLimits(uint32_t min_exposure_time_us,
 SystemTimeSyncState Driver::synchronizeSystemTime() {
   return impl_->invokeControl<SystemTimeSyncState>(
       [this](auto& context) { return impl_->synchronizeSystemTime(context); });
+}
+
+DeviceState Driver::getDeviceInfo() {
+  return impl_->invokeControl<DeviceState>([this](auto& context) {
+    const auto hello = context.client.hello();
+    const auto versions = context.client.deviceVersions();
+    const auto info = context.client.deviceInfo();
+    impl_->usb3_connected = info.usb3_connected;
+    impl_->sensor_board_online = info.sensor_board_online;
+    impl_->sensor_board_time_synced = info.sensor_board_time_synced;
+    impl_->product_serial = info.product_serial;
+    return fromSdk(hello, versions, info);
+  });
+}
+
+DeviceConfigurationState Driver::getDeviceConfiguration() {
+  return impl_->invokeControl<DeviceConfigurationState>([](auto& context) {
+    return fromSdk(context.client.deviceConfiguration());
+  });
+}
+
+DeviceConfigurationState Driver::setDeviceConfiguration(
+    bool set_camera_fps, uint32_t camera_fps, bool set_imu_rate_hz,
+    uint32_t imu_rate_hz, bool set_mjpeg_quality, uint32_t mjpeg_quality) {
+  uint32_t field_mask = 0;
+  if (set_camera_fps) field_mask |= prism::kDeviceConfigFieldCameraFps;
+  if (set_imu_rate_hz) field_mask |= prism::kDeviceConfigFieldImuRateHz;
+  if (set_mjpeg_quality) field_mask |= prism::kDeviceConfigFieldMjpegQuality;
+  if (field_mask == 0) {
+    throw std::invalid_argument("select at least one configuration field");
+  }
+  return impl_->invokeControl<DeviceConfigurationState>(
+      [this, set_camera_fps, camera_fps, set_imu_rate_hz, imu_rate_hz,
+       set_mjpeg_quality, mjpeg_quality, field_mask](auto& context) {
+        return impl_->runIdleOperation<DeviceConfigurationState>(
+            context, "saving_device_configuration",
+            [this, set_camera_fps, camera_fps, set_imu_rate_hz, imu_rate_hz,
+             set_mjpeg_quality, mjpeg_quality,
+             field_mask](prism::Client& client) {
+              auto configuration = client.deviceConfiguration();
+              if (set_camera_fps) configuration.camera_fps = camera_fps;
+              if (set_imu_rate_hz) configuration.imu_rate_hz = imu_rate_hz;
+              if (set_mjpeg_quality) {
+                configuration.mjpeg_quality = mjpeg_quality;
+              }
+              const auto saved =
+                  client.saveDeviceConfiguration(configuration, field_mask);
+              if (set_camera_fps) impl_->config.camera_fps = saved.camera_fps;
+              if (set_imu_rate_hz) {
+                impl_->config.imu_rate_hz = saved.imu_rate_hz;
+              }
+              return fromSdk(saved);
+            });
+      });
+}
+
+LidarStatusState Driver::getLidarStatus() {
+  return impl_->invokeControl<LidarStatusState>([](auto& context) {
+    return fromSdk(context.client.lidarStatus());
+  });
+}
+
+LidarNetworkState Driver::getLidarNetwork() {
+  return impl_->invokeControl<LidarNetworkState>([this](auto& context) {
+    return impl_->runIdleOperation<LidarNetworkState>(
+        context, "reading_lidar_network", [](prism::Client& client) {
+          return fromSdk(client.lidarNetworkStatus());
+        });
+  });
+}
+
+LidarNetworkState Driver::setLidarNetwork(bool enabled, std::string host_ip,
+                                          std::string netmask,
+                                          std::string lidar_ip) {
+  return impl_->invokeControl<LidarNetworkState>(
+      [this, enabled, host_ip = std::move(host_ip),
+       netmask = std::move(netmask),
+       lidar_ip = std::move(lidar_ip)](auto& context) {
+        return impl_->runIdleOperation<LidarNetworkState>(
+            context, "saving_lidar_network",
+            [enabled, host_ip, netmask,
+             lidar_ip](prism::Client& client) {
+              prism::LidarNetworkConfiguration configuration;
+              configuration.enabled = enabled;
+              configuration.host_ip = host_ip;
+              configuration.netmask = netmask;
+              configuration.lidar_ip = lidar_ip;
+              return fromSdk(
+                  client.saveLidarNetworkConfiguration(configuration));
+            });
+      });
+}
+
+LidarNetworkState Driver::probeLidarNetwork() {
+  return impl_->invokeControl<LidarNetworkState>([this](auto& context) {
+    return impl_->runIdleOperation<LidarNetworkState>(
+        context, "probing_lidar_network", [](prism::Client& client) {
+          return fromSdk(client.probeLidarNetwork());
+        });
+  });
+}
+
+StreamState Driver::getStreamState() {
+  return impl_->invokeControl<StreamState>(
+      [this](auto& context) { return impl_->streamState(context); });
+}
+
+StreamState Driver::controlStreams(StreamCommand command, bool camera,
+                                   bool board_imu, bool lidar) {
+  return impl_->invokeControl<StreamState>(
+      [this, command, camera, board_imu, lidar](auto& context) {
+        return impl_->applyStreamCommand(context, command, camera, board_imu,
+                                         lidar);
+      });
+}
+
+WifiHotspotState Driver::getWifiHotspot() {
+  return impl_->invokeControl<WifiHotspotState>([this](auto& context) {
+    return impl_->runIdleOperation<WifiHotspotState>(
+        context, "reading_wifi_hotspot", [](prism::Client& client) {
+          return fromSdk(client.wifiHotspotStatus());
+        });
+  });
+}
+
+WifiHotspotState Driver::setWifiHotspot(bool enabled) {
+  return impl_->invokeControl<WifiHotspotState>(
+      [this, enabled](auto& context) {
+        return impl_->runIdleOperation<WifiHotspotState>(
+            context, "saving_wifi_hotspot",
+            [enabled](prism::Client& client) {
+              return fromSdk(client.setWifiHotspotEnabled(enabled));
+            });
+      });
 }
 
 }  // namespace prism_ros_adapter

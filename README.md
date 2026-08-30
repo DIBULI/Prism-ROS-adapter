@@ -109,6 +109,17 @@ camera, IMU, or LiDAR stream reader.
 | `/prism/camera/set_exposure` | `prism_ros_msgs/SetCameraExposure` | Select automatic or manual exposure for one camera (index 0–3); manual mode accepts exposure in microseconds and gain in x1024 units |
 | `/prism/camera/set_exposure_limits` | `prism_ros_msgs/SetExposureLimits` | Set the runtime automatic-exposure time/gain limits shared by all cameras |
 | `/prism/system/sync_time` | `prism_ros_msgs/SyncSystemTime` | Make the host wall clock authoritative for the RK system and hardware clocks, then verify the result |
+| `/prism/device/get_info` | `prism_ros_msgs/GetDeviceInfo` | Read device identity, USB link, sensor-board health, detected sensors, and Host SDK/Agent/sensor-board versions |
+| `/prism/device/get_configuration` | `prism_ros_msgs/GetDeviceConfiguration` | Read the persisted Camera FPS, board-IMU rate, MJPEG quality, and configuration generation |
+| `/prism/device/set_configuration` | `prism_ros_msgs/SetDeviceConfiguration` | Persist any selected subset of Camera FPS, board-IMU rate, and MJPEG quality |
+| `/prism/lidar/get_status` | `prism_ros_msgs/GetLidarStatus` | Read the live LiDAR model, connection/receive state, address, serial, packet/point counters, and errors |
+| `/prism/lidar/get_network` | `prism_ros_msgs/GetLidarNetwork` | Read the persisted LiDAR network configuration and current interface/link/subnet/reachability state |
+| `/prism/lidar/set_network` | `prism_ros_msgs/SetLidarNetwork` | Persist LiDAR enable, host IPv4, netmask, and LiDAR IPv4 settings |
+| `/prism/lidar/probe_network` | `prism_ros_msgs/ProbeLidarNetwork` | Apply/check the configured host interface and test whether the LiDAR target is reachable |
+| `/prism/streams/get_state` | `prism_ros_msgs/GetStreamState` | Read enabled and active state for camera, board IMU, and LiDAR streams |
+| `/prism/streams/control` | `prism_ros_msgs/ControlStreams` | Start, stop, or restart the selected camera, board-IMU, and LiDAR streams |
+| `/prism/wifi/get_hotspot` | `prism_ros_msgs/GetWifiHotspot` | Read Wi-Fi interface presence, persisted enable state, AP/DHCP runtime state, SSID, and address |
+| `/prism/wifi/set_hotspot` | `prism_ros_msgs/SetWifiHotspot` | Persistently enable or disable the RK Wi-Fi hotspot |
 
 Exposure changes are runtime-only and are not persisted by the Agent. Service
 responses contain the values actually accepted by the device, including the
@@ -122,6 +133,50 @@ clock synchronization while idle. The adapter restores the original stream
 configuration before returning. Make sure the ROS host clock is correct before
 calling it.
 
+Persistent device, LiDAR-network, and Wi-Fi writes also require `confirm: true`.
+Device configuration currently accepts Camera FPS 1–30, board-IMU rate
+800 Hz, and MJPEG quality 1–99; unsupported values are rejected by the SDK.
+The request has one `set_*` selector per device field, so omitted fields remain
+unchanged. LiDAR network and Wi-Fi control commands require an idle USB session;
+the adapter pauses all active streams, performs the operation, and restores the
+requested stream state before responding. The corresponding status messages
+report persistence generations and device/Agent error details.
+
+`/prism/streams/control` accepts `command: start`, `stop`, or `restart` and at
+least one selected stream. Camera and board IMU share one sensor-board capture
+session, so every stream transition is implemented as one coordinated stop and
+restart; the final enabled/active state still follows the requested selection.
+Stopping all streams leaves the node and its services running.
+
+Firmware inspection or upgrade is intentionally not exposed as a ROS service.
+
+### Service request reference
+
+All responses begin with `success` and `message`. Query responses then contain
+an `info`, `configuration`, `status`, or `state` message with the complete
+device result. A command can be transported successfully by ROS while the
+device rejects it, so callers must check `success` and not only the ROS CLI
+exit status.
+
+| Service | Request fields | Usage notes |
+| --- | --- | --- |
+| `device/get_info` | none | Version strings distinguish Host SDK, Agent, sensor-board, and combined versions. Presence, receiving, synchronization, and initialization masks describe each detected sensor. |
+| `device/get_configuration` | none | Returns the current persisted/default Camera FPS, board-IMU rate, MJPEG quality, and generation. |
+| `device/set_configuration` | `confirm`; `set_camera_fps` + `camera_fps`; `set_imu_rate_hz` + `imu_rate_hz`; `set_mjpeg_quality` + `mjpeg_quality` | Set at least one selector. Unselected fields are preserved. The currently supported ranges are FPS 1–30, IMU 800 Hz, and MJPEG quality 1–99. |
+| `lidar/get_status` | none | Safe during streaming; returns model, live receive state, serial/IP, and counters. |
+| `lidar/get_network` | none | Returns saved network values and the current `end0`-side interface/link status. It briefly pauses and restores streams. |
+| `lidar/set_network` | `confirm`, `enabled`, `host_ip`, `netmask`, `lidar_ip` | Persists all LiDAR-network fields as one configuration. It does not infer the model or address. |
+| `lidar/probe_network` | none | Applies/checks the host-side configuration and reports `same_subnet` and `target_reachable`. |
+| `streams/get_state` | none | `*_enabled` is the requested runtime configuration; `*_active` confirms that the SDK stream actually started. |
+| `streams/control` | `command`, `camera`, `board_imu`, `lidar` | `command` is exactly `start`, `stop`, or `restart`; select at least one stream. `restart` requires every selected stream to be enabled already. |
+| `wifi/get_hotspot` | none | Returns interface presence, persisted enable, AP/DHCP runtime state, SSID, and address. It briefly pauses and restores streams. |
+| `wifi/set_hotspot` | `confirm`, `enabled` | Persists hotspot enable/disable. `present: false` means the device has no controllable Wi-Fi interface. |
+
+The device-configuration, LiDAR-network, and Wi-Fi write services reject
+`confirm: false` before sending a write to the device. Errors such as an
+unsupported IMU rate or invalid IPv4 address are returned in `message`, and
+the adapter attempts to restore the previous active streams before returning.
+
 ROS 2 examples:
 
 ```bash
@@ -134,6 +189,37 @@ ros2 service call /prism/camera/set_exposure \
   '{camera_index: 0, automatic: false, exposure_time_us: 5000, gain_x1024: 1024}'
 ros2 service call /prism/system/sync_time \
   prism_ros_msgs/srv/SyncSystemTime '{confirm: true}'
+ros2 service call /prism/device/get_info \
+  prism_ros_msgs/srv/GetDeviceInfo '{}'
+ros2 service call /prism/device/get_configuration \
+  prism_ros_msgs/srv/GetDeviceConfiguration '{}'
+ros2 service call /prism/device/set_configuration \
+  prism_ros_msgs/srv/SetDeviceConfiguration \
+  '{confirm: true, set_camera_fps: true, camera_fps: 20, set_imu_rate_hz: true, imu_rate_hz: 800, set_mjpeg_quality: true, mjpeg_quality: 88}'
+ros2 service call /prism/lidar/get_status \
+  prism_ros_msgs/srv/GetLidarStatus '{}'
+ros2 service call /prism/lidar/get_network \
+  prism_ros_msgs/srv/GetLidarNetwork '{}'
+ros2 service call /prism/lidar/set_network \
+  prism_ros_msgs/srv/SetLidarNetwork \
+  '{confirm: true, enabled: true, host_ip: 192.168.1.5, netmask: 255.255.255.0, lidar_ip: 192.168.1.194}'
+ros2 service call /prism/lidar/probe_network \
+  prism_ros_msgs/srv/ProbeLidarNetwork '{}'
+ros2 service call /prism/streams/control \
+  prism_ros_msgs/srv/ControlStreams \
+  '{command: restart, camera: true, board_imu: true, lidar: true}'
+ros2 service call /prism/streams/get_state \
+  prism_ros_msgs/srv/GetStreamState '{}'
+ros2 service call /prism/streams/control \
+  prism_ros_msgs/srv/ControlStreams \
+  '{command: stop, camera: false, board_imu: false, lidar: true}'
+ros2 service call /prism/streams/control \
+  prism_ros_msgs/srv/ControlStreams \
+  '{command: start, camera: false, board_imu: false, lidar: true}'
+ros2 service call /prism/wifi/get_hotspot \
+  prism_ros_msgs/srv/GetWifiHotspot '{}'
+ros2 service call /prism/wifi/set_hotspot \
+  prism_ros_msgs/srv/SetWifiHotspot '{confirm: true, enabled: true}'
 ```
 
 Use the corresponding ROS 1 service names without `/srv/`, for example:
@@ -142,6 +228,21 @@ Use the corresponding ROS 1 service names without `/srv/`, for example:
 rosservice call /prism/camera/get_exposure
 rosservice call /prism/camera/set_target_brightness "target_brightness: 35"
 rosservice call /prism/system/sync_time "confirm: true"
+rosservice call /prism/device/get_info
+rosservice call /prism/streams/get_state
+rosservice call /prism/device/set_configuration \
+  "confirm: true
+set_camera_fps: true
+camera_fps: 20
+set_imu_rate_hz: true
+imu_rate_hz: 800
+set_mjpeg_quality: true
+mjpeg_quality: 88"
+rosservice call /prism/streams/control \
+  "command: 'restart'
+camera: true
+board_imu: true
+lidar: true"
 ```
 
 ## Prerequisites

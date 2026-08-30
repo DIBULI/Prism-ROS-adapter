@@ -1,0 +1,11 @@
+bool present
+bool enabled
+bool running
+bool access_point_running
+bool dhcp_running
+bool persisted
+int32 error_code
+string interface_name
+string ssid
+string address
+string error

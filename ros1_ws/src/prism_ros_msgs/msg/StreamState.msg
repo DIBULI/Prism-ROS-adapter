@@ -1,0 +1,7 @@
+bool camera_enabled
+bool board_imu_enabled
+bool lidar_enabled
+bool camera_active
+bool board_imu_active
+bool lidar_active
+string lidar_model

@@ -1,0 +1,11 @@
+bool confirm
+bool set_camera_fps
+uint32 camera_fps
+bool set_imu_rate_hz
+uint32 imu_rate_hz
+bool set_mjpeg_quality
+uint32 mjpeg_quality
+---
+bool success
+string message
+DeviceConfiguration configuration

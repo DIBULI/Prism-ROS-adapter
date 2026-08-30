@@ -1,0 +1,14 @@
+bool enabled
+string host_ip
+string netmask
+string lidar_ip
+bool interface_present
+bool link_up
+bool address_applied
+bool same_subnet
+bool target_reachable
+bool persisted
+int32 error_code
+uint32 generation
+string interface_name
+string error

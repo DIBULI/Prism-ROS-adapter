@@ -1,0 +1,13 @@
+bool available
+bool enabled
+bool connected
+bool receiving
+string model
+uint8 device_type
+uint32 handle
+uint64 packet_count
+uint64 point_count
+uint64 dropped_point_count
+string serial
+string lidar_ip
+string error
