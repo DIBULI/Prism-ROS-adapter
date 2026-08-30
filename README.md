@@ -56,8 +56,9 @@ The supported binary mapping is:
 | Jazzy, Kilted | `runtime/ros/ubuntu-24.04-x86_64` |
 | Lyrical, Rolling | `runtime/ros/ubuntu-26.04-x86_64` |
 
-All four payloads are part of the pinned Prism SDK `1.0.0` release. Verify the
-submodule and all ROS runtime prefixes with:
+All four payloads are part of the pinned Prism SDK `1.0.0` release and include
+the production `800 Hz` IMU runtime update. Verify the submodule and all ROS
+runtime prefixes with:
 
 ```bash
 ./scripts/verify_sdk_submodule.sh all
@@ -211,7 +212,7 @@ Important parameters:
 | `camera_fps` | `0` | `0` uses device configuration; otherwise request 1–30 FPS |
 | `board_imu_enabled` | `true` | Publish detected board IMUs |
 | `imu_sensor_count` | `0` | `0` uses detected count; normally one or two |
-| `imu_rate_hz` | `0` | `0` uses device configuration |
+| `imu_rate_hz` | `0` | `0` uses device configuration; production devices use 800 Hz |
 | `lidar_enabled` | `true` | Start and publish the configured Livox LiDAR |
 | `lidar_model` | `mid360` | Must be `mid360` or `mid360s` |
 | `require_synchronized_timestamps` | `true` | Drop samples that are not in the common RK time domain |
