@@ -7,6 +7,11 @@ find_package(std_msgs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/CameraFrameMetadata.msg"
+  "srv/GetExposure.srv"
+  "srv/SetCameraExposure.srv"
+  "srv/SetExposureLimits.srv"
+  "srv/SetTargetBrightness.srv"
+  "srv/SyncSystemTime.srv"
   DEPENDENCIES std_msgs
 )
 

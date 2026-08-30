@@ -1,0 +1,12 @@
+---
+bool success
+string message
+uint8 automatic_camera_mask
+uint8 target_brightness
+uint32[4] manual_exposure_time_us
+uint32[4] gain_x1024
+uint32 min_exposure_time_us
+uint32 max_exposure_time_us
+uint32 effective_max_exposure_time_us
+uint32 min_gain_x1024
+uint32 max_gain_x1024

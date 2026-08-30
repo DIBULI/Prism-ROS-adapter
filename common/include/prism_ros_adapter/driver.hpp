@@ -33,6 +33,40 @@ struct DriverConfig {
   bool require_synchronized_timestamps = true;
 };
 
+enum class CameraExposureMode {
+  Automatic,
+  Manual,
+};
+
+struct ExposureState {
+  uint8_t automatic_camera_mask = 0;
+  uint8_t target_brightness = 0;
+  std::array<uint32_t, 4> manual_exposure_time_us{};
+  std::array<uint32_t, 4> gain_x1024{};
+};
+
+struct ExposureLimitsState {
+  uint32_t min_exposure_time_us = 0;
+  uint32_t max_exposure_time_us = 0;
+  uint32_t effective_max_exposure_time_us = 0;
+  uint32_t min_gain_x1024 = 0;
+  uint32_t max_gain_x1024 = 0;
+};
+
+struct SystemTimeSyncState {
+  int64_t before_offset_us = 0;
+  int64_t applied_correction_us = 0;
+  int64_t after_offset_us = 0;
+  int64_t round_trip_us = 0;
+  int64_t jitter_us = 0;
+  uint32_t correction_passes = 0;
+  bool system_time_set = false;
+  bool ptp_hardware_clock_set = false;
+  bool hardware_clock_set = false;
+  bool verified = false;
+  std::string rtc_device;
+};
+
 struct CameraFrameSet {
   uint64_t timestamp_ns = 0;
   uint32_t host_frame_id = 0;
@@ -120,6 +154,19 @@ class Driver {
 
   void run(const std::function<bool()>& keep_running);
   void requestStop() noexcept;
+
+  ExposureState getExposure();
+  ExposureState setTargetBrightness(uint8_t target_brightness);
+  ExposureState setCameraExposure(uint8_t camera_index,
+                                  CameraExposureMode mode,
+                                  uint32_t exposure_time_us,
+                                  uint32_t gain_x1024);
+  ExposureLimitsState getExposureLimits();
+  ExposureLimitsState setExposureLimits(uint32_t min_exposure_time_us,
+                                        uint32_t max_exposure_time_us,
+                                        uint32_t min_gain_x1024,
+                                        uint32_t max_gain_x1024);
+  SystemTimeSyncState synchronizeSystemTime();
 
  private:
   struct Impl;

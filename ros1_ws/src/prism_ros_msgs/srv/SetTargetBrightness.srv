@@ -1,0 +1,8 @@
+uint8 target_brightness
+---
+bool success
+string message
+uint8 automatic_camera_mask
+uint8 target_brightness
+uint32[4] manual_exposure_time_us
+uint32[4] gain_x1024

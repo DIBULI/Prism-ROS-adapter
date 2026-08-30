@@ -4,6 +4,11 @@
 #include <diagnostic_msgs/msg/diagnostic_status.hpp>
 #include <diagnostic_msgs/msg/key_value.hpp>
 #include <prism_ros_msgs/msg/camera_frame_metadata.hpp>
+#include <prism_ros_msgs/srv/get_exposure.hpp>
+#include <prism_ros_msgs/srv/set_camera_exposure.hpp>
+#include <prism_ros_msgs/srv/set_exposure_limits.hpp>
+#include <prism_ros_msgs/srv/set_target_brightness.hpp>
+#include <prism_ros_msgs/srv/sync_system_time.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/compressed_image.hpp>
 #include <sensor_msgs/msg/imu.hpp>
@@ -40,6 +45,35 @@ diagnostic_msgs::msg::KeyValue keyValue(const std::string& key,
   output.key = key;
   output.value = value;
   return output;
+}
+
+template <typename Response>
+void fillExposure(Response& response,
+                  const prism_ros_adapter::ExposureState& state) {
+  response.automatic_camera_mask = state.automatic_camera_mask;
+  response.target_brightness = state.target_brightness;
+  std::copy(state.manual_exposure_time_us.begin(),
+            state.manual_exposure_time_us.end(),
+            response.manual_exposure_time_us.begin());
+  std::copy(state.gain_x1024.begin(), state.gain_x1024.end(),
+            response.gain_x1024.begin());
+}
+
+template <typename Response>
+void fillExposureLimits(Response& response,
+                        const prism_ros_adapter::ExposureLimitsState& state) {
+  response.min_exposure_time_us = state.min_exposure_time_us;
+  response.max_exposure_time_us = state.max_exposure_time_us;
+  response.effective_max_exposure_time_us =
+      state.effective_max_exposure_time_us;
+  response.min_gain_x1024 = state.min_gain_x1024;
+  response.max_gain_x1024 = state.max_gain_x1024;
+}
+
+template <typename Response>
+void failService(Response& response, const std::exception& error) {
+  response.success = false;
+  response.message = error.what();
 }
 
 class PrismRos2Node : public rclcpp::Node {
@@ -129,11 +163,123 @@ class PrismRos2Node : public rclcpp::Node {
     };
     driver_ = std::make_unique<prism_ros_adapter::Driver>(
         std::move(config), std::move(callbacks));
+    createServices();
   }
 
   void run() { driver_->run([]() { return rclcpp::ok(); }); }
 
  private:
+  void createServices() {
+    using GetExposure = prism_ros_msgs::srv::GetExposure;
+    using SetTargetBrightness = prism_ros_msgs::srv::SetTargetBrightness;
+    using SetCameraExposure = prism_ros_msgs::srv::SetCameraExposure;
+    using SetExposureLimits = prism_ros_msgs::srv::SetExposureLimits;
+    using SyncSystemTime = prism_ros_msgs::srv::SyncSystemTime;
+    get_exposure_service_ =
+        create_service<GetExposure>(
+            topic(topic_prefix_, "camera/get_exposure"),
+            [this](const std::shared_ptr<GetExposure::Request>,
+                   std::shared_ptr<GetExposure::Response> response) {
+              try {
+                fillExposure(*response, driver_->getExposure());
+                fillExposureLimits(*response, driver_->getExposureLimits());
+                response->success = true;
+                response->message = "ok";
+              } catch (const std::exception& error) {
+                failService(*response, error);
+              }
+            });
+    set_target_brightness_service_ =
+        create_service<SetTargetBrightness>(
+            topic(topic_prefix_, "camera/set_target_brightness"),
+            [this](const std::shared_ptr<SetTargetBrightness::Request> request,
+                   std::shared_ptr<SetTargetBrightness::Response> response) {
+              try {
+                fillExposure(
+                    *response,
+                    driver_->setTargetBrightness(request->target_brightness));
+                response->success = true;
+                response->message = "ok";
+              } catch (const std::exception& error) {
+                failService(*response, error);
+              }
+            });
+    set_camera_exposure_service_ =
+        create_service<SetCameraExposure>(
+            topic(topic_prefix_, "camera/set_exposure"),
+            [this](const std::shared_ptr<SetCameraExposure::Request> request,
+                   std::shared_ptr<SetCameraExposure::Response> response) {
+              try {
+                const auto mode =
+                    request->automatic
+                        ? prism_ros_adapter::CameraExposureMode::Automatic
+                        : prism_ros_adapter::CameraExposureMode::Manual;
+                fillExposure(
+                    *response,
+                    driver_->setCameraExposure(
+                        request->camera_index, mode, request->exposure_time_us,
+                        request->gain_x1024));
+                response->success = true;
+                response->message = "ok";
+              } catch (const std::exception& error) {
+                failService(*response, error);
+              }
+            });
+    set_exposure_limits_service_ =
+        create_service<SetExposureLimits>(
+            topic(topic_prefix_, "camera/set_exposure_limits"),
+            [this](const std::shared_ptr<SetExposureLimits::Request> request,
+                   std::shared_ptr<SetExposureLimits::Response> response) {
+              try {
+                fillExposureLimits(
+                    *response,
+                    driver_->setExposureLimits(
+                        request->min_exposure_time_us,
+                        request->max_exposure_time_us,
+                        request->min_gain_x1024, request->max_gain_x1024));
+                response->success = true;
+                response->message = "ok";
+              } catch (const std::exception& error) {
+                failService(*response, error);
+              }
+            });
+    sync_system_time_service_ =
+        create_service<SyncSystemTime>(
+            topic(topic_prefix_, "system/sync_time"),
+            [this](const std::shared_ptr<SyncSystemTime::Request> request,
+                   std::shared_ptr<SyncSystemTime::Response> response) {
+              if (!request->confirm) {
+                response->success = false;
+                response->message =
+                    "set confirm=true to pause streams and synchronize the "
+                    "device to the host clock";
+                return;
+              }
+              try {
+                const auto state = driver_->synchronizeSystemTime();
+                response->before_offset_us = state.before_offset_us;
+                response->applied_correction_us =
+                    state.applied_correction_us;
+                response->after_offset_us = state.after_offset_us;
+                response->round_trip_us = state.round_trip_us;
+                response->jitter_us = state.jitter_us;
+                response->correction_passes = state.correction_passes;
+                response->system_time_set = state.system_time_set;
+                response->ptp_hardware_clock_set =
+                    state.ptp_hardware_clock_set;
+                response->hardware_clock_set = state.hardware_clock_set;
+                response->verified = state.verified;
+                response->rtc_device = state.rtc_device;
+                response->success = state.verified;
+                response->message = state.verified
+                                        ? "device synchronized to host clock"
+                                        : "time synchronization was not verified";
+              } catch (const std::exception& error) {
+                failService(*response, error);
+              }
+            });
+  }
+
   void publishCamera(const prism_ros_adapter::CameraFrameSet& frame) {
     const auto stamp = rosTime(frame.timestamp_ns);
     for (size_t i = 0; i < camera_publishers_.size(); ++i) {
@@ -278,6 +424,16 @@ class PrismRos2Node : public rclcpp::Node {
   rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr lidar_imu_publisher_;
   rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr
       diagnostics_publisher_;
+  rclcpp::Service<prism_ros_msgs::srv::GetExposure>::SharedPtr
+      get_exposure_service_;
+  rclcpp::Service<prism_ros_msgs::srv::SetTargetBrightness>::SharedPtr
+      set_target_brightness_service_;
+  rclcpp::Service<prism_ros_msgs::srv::SetCameraExposure>::SharedPtr
+      set_camera_exposure_service_;
+  rclcpp::Service<prism_ros_msgs::srv::SetExposureLimits>::SharedPtr
+      set_exposure_limits_service_;
+  rclcpp::Service<prism_ros_msgs::srv::SyncSystemTime>::SharedPtr
+      sync_system_time_service_;
   std::unique_ptr<prism_ros_adapter::Driver> driver_;
 };
 

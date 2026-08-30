@@ -23,6 +23,12 @@ case "${DISTRO}" in
       rospack find prism_ros_driver >/dev/null
       interface_text="$(rosmsg show prism_ros_msgs/CameraFrameMetadata)"
       grep -q "uint32\[4\] exposure_us" <<<"${interface_text}"
+      exposure_service="$(rossrv show prism_ros_msgs/SetCameraExposure)"
+      grep -q "uint8 camera_index" <<<"${exposure_service}"
+      grep -q "bool automatic" <<<"${exposure_service}"
+      time_service="$(rossrv show prism_ros_msgs/SyncSystemTime)"
+      grep -q "bool confirm" <<<"${time_service}"
+      grep -q "int64 after_offset_us" <<<"${time_service}"
       test -f "$(rospack find prism_ros_driver)/launch/prism.launch"
     '
     check_linkage prism-ros-adapter:noetic \
@@ -34,6 +40,12 @@ case "${DISTRO}" in
       ros2 pkg prefix prism_ros_driver >/dev/null
       interface_text="$(ros2 interface show prism_ros_msgs/msg/CameraFrameMetadata)"
       grep -q "uint32\[4\] exposure_us" <<<"${interface_text}"
+      exposure_service="$(ros2 interface show prism_ros_msgs/srv/SetCameraExposure)"
+      grep -q "uint8 camera_index" <<<"${exposure_service}"
+      grep -q "bool automatic" <<<"${exposure_service}"
+      time_service="$(ros2 interface show prism_ros_msgs/srv/SyncSystemTime)"
+      grep -q "bool confirm" <<<"${time_service}"
+      grep -q "int64 after_offset_us" <<<"${time_service}"
       ros2 launch prism_ros_driver prism.launch.py --show-args >/dev/null
     '
     check_linkage "prism-ros-adapter:${DISTRO}" \

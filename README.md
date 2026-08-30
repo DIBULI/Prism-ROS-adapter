@@ -96,6 +96,54 @@ need raw images can use `image_transport`/`compressed_image_transport`. Camera
 calibration is not invented by the driver; publish the calibrated
 `CameraInfo` from your calibration package.
 
+## Services
+
+ROS 1 and ROS 2 expose the same device-control services. Every SDK command is
+serialized onto the USB receive thread, so a service callback never races the
+camera, IMU, or LiDAR stream reader.
+
+| Service | Type | Description |
+| --- | --- | --- |
+| `/prism/camera/get_exposure` | `prism_ros_msgs/GetExposure` | Read the automatic-camera mask, target brightness, four camera values, and shared limits |
+| `/prism/camera/set_target_brightness` | `prism_ros_msgs/SetTargetBrightness` | Set the shared automatic-exposure target brightness (1–255) |
+| `/prism/camera/set_exposure` | `prism_ros_msgs/SetCameraExposure` | Select automatic or manual exposure for one camera (index 0–3); manual mode accepts exposure in microseconds and gain in x1024 units |
+| `/prism/camera/set_exposure_limits` | `prism_ros_msgs/SetExposureLimits` | Set the runtime automatic-exposure time/gain limits shared by all cameras |
+| `/prism/system/sync_time` | `prism_ros_msgs/SyncSystemTime` | Make the host wall clock authoritative for the RK system and hardware clocks, then verify the result |
+
+Exposure changes are runtime-only and are not persisted by the Agent. Service
+responses contain the values actually accepted by the device, including the
+effective maximum exposure after the active FPS headroom is applied. When
+switching a camera back to automatic mode, `exposure_time_us: 0` and
+`gain_x1024: 0` preserve that camera's stored manual values.
+
+System time synchronization requires `confirm: true`. It temporarily pauses
+all active camera, board-IMU, and LiDAR streams because the USB SDK only permits
+clock synchronization while idle. The adapter restores the original stream
+configuration before returning. Make sure the ROS host clock is correct before
+calling it.
+
+ROS 2 examples:
+
+```bash
+ros2 service call /prism/camera/get_exposure \
+  prism_ros_msgs/srv/GetExposure '{}'
+ros2 service call /prism/camera/set_target_brightness \
+  prism_ros_msgs/srv/SetTargetBrightness '{target_brightness: 35}'
+ros2 service call /prism/camera/set_exposure \
+  prism_ros_msgs/srv/SetCameraExposure \
+  '{camera_index: 0, automatic: false, exposure_time_us: 5000, gain_x1024: 1024}'
+ros2 service call /prism/system/sync_time \
+  prism_ros_msgs/srv/SyncSystemTime '{confirm: true}'
+```
+
+Use the corresponding ROS 1 service names without `/srv/`, for example:
+
+```bash
+rosservice call /prism/camera/get_exposure
+rosservice call /prism/camera/set_target_brightness "target_brightness: 35"
+rosservice call /prism/system/sync_time "confirm: true"
+```
+
 ## Prerequisites
 
 1. Prism Agent and Host USB SDK must have exactly the same version. This
@@ -312,6 +360,7 @@ Inspect metadata and diagnostics:
 ```bash
 ros2 topic echo --once /prism/camera/metadata
 ros2 topic echo --once /diagnostics
+ros2 service list | grep '^/prism/'
 ```
 
 A healthy run has monotonically increasing device timestamps, nonzero camera,

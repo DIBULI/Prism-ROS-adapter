@@ -11,6 +11,7 @@
 #include <cstring>
 #include <deque>
 #include <exception>
+#include <future>
 #include <map>
 #include <mutex>
 #include <stdexcept>
@@ -52,6 +53,53 @@ std::string narrow(const std::wstring& value) {
 prism::LidarModel toSdkModel(LidarModel model) {
   return model == LidarModel::Mid360S ? prism::LidarModel::Mid360S
                                       : prism::LidarModel::Mid360;
+}
+
+ExposureState fromSdk(const prism::ExposureConfiguration& value) {
+  ExposureState output;
+  output.automatic_camera_mask = value.automatic_camera_mask;
+  output.target_brightness = value.target_brightness;
+  output.manual_exposure_time_us = value.manual_exposure_time_us;
+  output.gain_x1024 = value.gain_x1024;
+  return output;
+}
+
+ExposureLimitsState fromSdk(const prism::ExposureLimits& value) {
+  ExposureLimitsState output;
+  output.min_exposure_time_us = value.min_exposure_time_us;
+  output.max_exposure_time_us = value.max_exposure_time_us;
+  output.effective_max_exposure_time_us =
+      value.effective_max_exposure_time_us;
+  output.min_gain_x1024 = value.min_gain_x1024;
+  output.max_gain_x1024 = value.max_gain_x1024;
+  return output;
+}
+
+SystemTimeSyncState fromSdk(const prism::SystemTimeSyncResult& value) {
+  SystemTimeSyncState output;
+  output.before_offset_us = value.before.offset_us;
+  output.applied_correction_us = value.applied_correction_us;
+  output.after_offset_us = value.after.offset_us;
+  output.round_trip_us = value.after.round_trip_us;
+  output.jitter_us = value.after.jitter_us;
+  output.correction_passes = value.correction_passes;
+  output.system_time_set = value.system_time_set;
+  output.ptp_hardware_clock_set = value.ptp_hardware_clock_set;
+  output.hardware_clock_set = value.hardware_clock_set;
+  output.verified = value.verified;
+  output.rtc_device = value.rtc_device;
+  return output;
+}
+
+std::string exceptionText(std::exception_ptr error) {
+  try {
+    if (error) std::rethrow_exception(error);
+  } catch (const std::exception& exception) {
+    return exception.what();
+  } catch (...) {
+    return "unknown error";
+  }
+  return {};
 }
 
 template <typename T>
@@ -140,6 +188,21 @@ struct CameraAssembly {
 }  // namespace
 
 struct Driver::Impl {
+  struct ControlContext {
+    prism::Client& client;
+    std::unique_ptr<prism::ImuStream>& imu_stream;
+    std::unique_ptr<prism::LidarStream>& lidar_stream;
+    uint32_t imu_sensor_count;
+    bool& video_started;
+    bool& imu_started;
+    bool& lidar_started;
+  };
+
+  struct ControlCommand {
+    std::function<void(ControlContext&)> execute;
+    std::function<void(std::exception_ptr)> cancel;
+  };
+
   Impl(DriverConfig config_in, DriverCallbacks callbacks_in)
       : config(std::move(config_in)),
         callbacks(std::move(callbacks_in)),
@@ -148,6 +211,203 @@ struct Driver::Impl {
         lidar_dispatch(16, callbacks.lidar_points),
         lidar_imu_dispatch(2048, callbacks.lidar_imu) {
     for (auto& counter : board_imu_samples) counter.store(0);
+  }
+
+  template <typename Result, typename Function>
+  Result invokeControl(Function function) {
+    auto promise = std::make_shared<std::promise<Result>>();
+    auto future = promise->get_future();
+    ControlCommand command;
+    command.execute = [promise, function = std::move(function)](
+                          ControlContext& context) mutable {
+          try {
+            promise->set_value(function(context));
+          } catch (...) {
+            promise->set_exception(std::current_exception());
+          }
+        };
+    command.cancel = [promise](std::exception_ptr error) {
+      try {
+        promise->set_exception(error);
+      } catch (...) {
+      }
+    };
+    {
+      std::lock_guard<std::mutex> lock(control_mutex);
+      if (!accepting_controls) {
+        throw std::runtime_error(
+            "Prism driver is not currently accepting service commands");
+      }
+      control_commands.push_back(std::move(command));
+    }
+    return future.get();
+  }
+
+  void enableControls() {
+    std::lock_guard<std::mutex> lock(control_mutex);
+    accepting_controls = true;
+  }
+
+  void cancelControls(const std::string& reason) noexcept {
+    std::deque<ControlCommand> pending;
+    {
+      std::lock_guard<std::mutex> lock(control_mutex);
+      accepting_controls = false;
+      pending.swap(control_commands);
+    }
+    const auto error =
+        std::make_exception_ptr(std::runtime_error(reason));
+    for (auto& command : pending) command.cancel(error);
+  }
+
+  void processControls(ControlContext& context) {
+    std::deque<ControlCommand> pending;
+    {
+      std::lock_guard<std::mutex> lock(control_mutex);
+      pending.swap(control_commands);
+    }
+    for (auto& command : pending) command.execute(context);
+  }
+
+  void startConfiguredStreams(ControlContext& context) {
+    if (config.enable_camera && !context.video_started) {
+      const auto video =
+          context.client.startVideo1280x1024(config.camera_fps);
+      context.video_started = video.enabled;
+      if (!video.enabled) throw std::runtime_error("camera start was rejected");
+    }
+
+    if (config.enable_board_imu && !context.imu_started) {
+      if (!context.imu_stream) {
+        throw std::runtime_error("board IMU stream is unavailable");
+      }
+      context.imu_stream->start(context.imu_sensor_count, config.imu_rate_hz);
+      context.imu_started = true;
+    }
+
+    establishDeviceTimeReference(context.client, context.imu_stream.get());
+
+    if (config.enable_lidar && !context.lidar_started) {
+      if (!context.lidar_stream) {
+        throw std::runtime_error("LiDAR stream is unavailable");
+      }
+      context.lidar_stream->start(toSdkModel(config.lidar_model));
+      context.lidar_started = true;
+    }
+  }
+
+  void stopConfiguredStreams(ControlContext& context) {
+    if (context.lidar_started && context.lidar_stream) {
+      context.lidar_stream->stop();
+      context.lidar_started = false;
+    }
+
+    if (context.imu_started && context.imu_stream) {
+      // Camera and board IMU share one aggregate capture session. Either SDK
+      // stop call stops both paths.
+      context.imu_stream->stop();
+      context.imu_started = false;
+      context.video_started = false;
+    } else if (context.video_started) {
+      context.client.stopVideo();
+      context.video_started = false;
+    }
+  }
+
+  void reopenControlClient(ControlContext& context) {
+    // A large CLOCK_REALTIME/PHC step can leave the Agent's aggregate capture
+    // session and timestamp synchronizers tied to the previous epoch even
+    // after an SDK stop/start. Reopening the USB session matches a fresh node
+    // start and lets camera, board IMU, and LiDAR establish the new epoch.
+    context.imu_stream.reset();
+    context.lidar_stream.reset();
+    context.client.close();
+    std::this_thread::sleep_for(std::chrono::milliseconds(250));
+    context.client = openClient();
+    context.client.setKeepaliveEnabled(true);
+
+    const auto info = context.client.deviceInfo();
+    usb3_connected = info.usb3_connected;
+    sensor_board_online = info.sensor_board_online;
+    sensor_board_time_synced = info.sensor_board_time_synced;
+    product_serial = info.product_serial;
+    if ((config.enable_camera || config.enable_board_imu) &&
+        !info.sensor_board_online) {
+      throw std::runtime_error("sensor-board is offline after time sync");
+    }
+    uint8_t camera_count = info.detected_camera_count;
+    if (camera_count == 0 || camera_count > 4) camera_count = 4;
+    camera_mask = static_cast<uint8_t>((1u << camera_count) - 1u);
+
+    if (config.enable_board_imu) {
+      context.imu_stream = std::make_unique<prism::ImuStream>(
+          context.client, [this](const prism::ImuSample& sample) {
+            dispatchBoardImu(sample);
+          });
+    }
+    if (config.enable_lidar) {
+      context.lidar_stream = std::make_unique<prism::LidarStream>(
+          context.client,
+          [this](const prism::LidarPointBatch& batch) {
+            dispatchLidarPoints(batch);
+          },
+          [this](const prism::LidarImuSample& sample) {
+            dispatchLidarImu(sample);
+          });
+    }
+  }
+
+  SystemTimeSyncState synchronizeSystemTime(ControlContext& context) {
+    publishStatus("synchronizing_time");
+    try {
+      stopConfiguredStreams(context);
+    } catch (...) {
+      const auto stop_error = std::current_exception();
+      try {
+        startConfiguredStreams(context);
+        publishStatus("streaming");
+      } catch (...) {
+        fatal_control_error =
+            "failed to pause streams for time synchronization: " +
+            exceptionText(stop_error) + "; stream recovery failed: " +
+            exceptionText(std::current_exception());
+        throw std::runtime_error(fatal_control_error);
+      }
+      throw;
+    }
+
+    camera_assemblies.clear();
+    device_time_resolver.reset();
+    prism::SystemTimeSyncResult result;
+    try {
+      result = context.client.synchronizeSystemTime();
+    } catch (...) {
+      const auto sync_error = std::current_exception();
+      try {
+        reopenControlClient(context);
+        startConfiguredStreams(context);
+        publishStatus("streaming");
+      } catch (...) {
+        fatal_control_error = "system time synchronization failed: " +
+                              exceptionText(sync_error) +
+                              "; stream recovery failed: " +
+                              exceptionText(std::current_exception());
+        throw std::runtime_error(fatal_control_error);
+      }
+      std::rethrow_exception(sync_error);
+    }
+
+    try {
+      reopenControlClient(context);
+      startConfiguredStreams(context);
+    } catch (...) {
+      fatal_control_error =
+          "system time synchronized, but stream restart failed: " +
+          exceptionText(std::current_exception());
+      throw std::runtime_error(fatal_control_error);
+    }
+    publishStatus("streaming");
+    return fromSdk(result);
   }
 
   void log(LogLevel level, const std::string& text) const {
@@ -458,6 +718,7 @@ struct Driver::Impl {
     }
 
     stop_requested.store(false);
+    fatal_control_error.clear();
     device_time_resolver.reset();
     startDispatchers();
     prism::Client client = openClient();
@@ -479,51 +740,46 @@ struct Driver::Impl {
 
     std::unique_ptr<prism::ImuStream> imu_stream;
     std::unique_ptr<prism::LidarStream> lidar_stream;
+    uint32_t imu_sensor_count = config.imu_sensor_count;
+    if (imu_sensor_count == 0) {
+      imu_sensor_count = std::max<uint32_t>(1, info.detected_imu_count);
+    }
+    if (config.enable_board_imu) {
+      imu_stream = std::make_unique<prism::ImuStream>(
+          client, [this](const prism::ImuSample& sample) {
+            dispatchBoardImu(sample);
+          });
+    }
+    if (config.enable_lidar) {
+      lidar_stream = std::make_unique<prism::LidarStream>(
+          client,
+          [this](const prism::LidarPointBatch& batch) {
+            dispatchLidarPoints(batch);
+          },
+          [this](const prism::LidarImuSample& sample) {
+            dispatchLidarImu(sample);
+          });
+    }
     bool video_started = false;
     bool imu_started = false;
     bool lidar_started = false;
+    ControlContext control_context{client, imu_stream, lidar_stream,
+                                   imu_sensor_count, video_started,
+                                   imu_started, lidar_started};
     running.store(true);
     publishStatus("starting");
 
     try {
-      if (config.enable_camera) {
-        const auto video = client.startVideo1280x1024(config.camera_fps);
-        video_started = video.enabled;
-        if (!video.enabled) throw std::runtime_error("camera start was rejected");
-      }
-
-      if (config.enable_board_imu) {
-        imu_stream = std::make_unique<prism::ImuStream>(
-            client, [this](const prism::ImuSample& sample) {
-              dispatchBoardImu(sample);
-            });
-        uint32_t sensor_count = config.imu_sensor_count;
-        if (sensor_count == 0) {
-          sensor_count = std::max<uint32_t>(1, info.detected_imu_count);
-        }
-        imu_stream->start(sensor_count, config.imu_rate_hz);
-        imu_started = true;
-      }
-
-      establishDeviceTimeReference(client, imu_stream.get());
-
-      if (config.enable_lidar) {
-        lidar_stream = std::make_unique<prism::LidarStream>(
-            client,
-            [this](const prism::LidarPointBatch& batch) {
-              dispatchLidarPoints(batch);
-            },
-            [this](const prism::LidarImuSample& sample) {
-              dispatchLidarImu(sample);
-            });
-        lidar_stream->start(toSdkModel(config.lidar_model));
-        lidar_started = true;
-      }
-
+      startConfiguredStreams(control_context);
+      enableControls();
       publishStatus("streaming");
       auto next_status = std::chrono::steady_clock::now();
       uint32_t consecutive_timeouts = 0;
       while (!stop_requested.load() && keep_running()) {
+        processControls(control_context);
+        if (!fatal_control_error.empty()) {
+          throw std::runtime_error(fatal_control_error);
+        }
         try {
           auto frame = client.readFrame(1000);
           consecutive_timeouts = 0;
@@ -548,6 +804,7 @@ struct Driver::Impl {
         }
       }
     } catch (const std::exception& error) {
+      cancelControls(std::string("Prism driver stopped: ") + error.what());
       publishStatus("failed", error.what());
       log(LogLevel::Error, error.what());
       cleanup(client, lidar_stream.get(), imu_stream.get(), lidar_started,
@@ -557,6 +814,7 @@ struct Driver::Impl {
       throw;
     }
 
+    cancelControls("Prism driver stopped");
     cleanup(client, lidar_stream.get(), imu_stream.get(), lidar_started,
             imu_started, video_started);
     running.store(false);
@@ -591,6 +849,10 @@ struct Driver::Impl {
   DispatchQueue<BoardImuSample> board_imu_dispatch;
   DispatchQueue<LidarPointBatch> lidar_dispatch;
   DispatchQueue<LidarImuSample> lidar_imu_dispatch;
+  std::mutex control_mutex;
+  std::deque<ControlCommand> control_commands;
+  bool accepting_controls = false;
+  std::string fatal_control_error;
   std::atomic<bool> stop_requested{false};
   std::atomic<bool> running{false};
   bool usb3_connected = false;
@@ -620,5 +882,80 @@ void Driver::run(const std::function<bool()>& keep_running) {
 }
 
 void Driver::requestStop() noexcept { impl_->stop_requested.store(true); }
+
+ExposureState Driver::getExposure() {
+  return impl_->invokeControl<ExposureState>([](auto& context) {
+    return fromSdk(context.client.cameraExposure());
+  });
+}
+
+ExposureState Driver::setTargetBrightness(uint8_t target_brightness) {
+  if (target_brightness == 0) {
+    throw std::invalid_argument("target brightness must be in range 1..255");
+  }
+  return impl_->invokeControl<ExposureState>(
+      [target_brightness](auto& context) {
+        return fromSdk(context.client.setAutoExposureTargetBrightness(
+            target_brightness));
+      });
+}
+
+ExposureState Driver::setCameraExposure(uint8_t camera_index,
+                                        CameraExposureMode mode,
+                                        uint32_t exposure_time_us,
+                                        uint32_t gain_x1024) {
+  if (camera_index >= 4) {
+    throw std::invalid_argument("camera index must be in range 0..3");
+  }
+  return impl_->invokeControl<ExposureState>(
+      [camera_index, mode, exposure_time_us, gain_x1024](auto& context) mutable {
+        if (mode == CameraExposureMode::Automatic &&
+            (exposure_time_us == 0 || gain_x1024 == 0)) {
+          const auto current = context.client.cameraExposure();
+          if (exposure_time_us == 0) {
+            exposure_time_us = current.manual_exposure_time_us[camera_index];
+          }
+          if (gain_x1024 == 0) {
+            gain_x1024 = current.gain_x1024[camera_index];
+          }
+        }
+        prism::CameraExposureConfiguration configuration;
+        configuration.mode =
+            mode == CameraExposureMode::Automatic
+                ? prism::CameraExposureMode::Automatic
+                : prism::CameraExposureMode::Manual;
+        configuration.exposure_time_us = exposure_time_us;
+        configuration.gain_x1024 = gain_x1024;
+        return fromSdk(context.client.setCameraExposure(camera_index,
+                                                        configuration));
+      });
+}
+
+ExposureLimitsState Driver::getExposureLimits() {
+  return impl_->invokeControl<ExposureLimitsState>([](auto& context) {
+    return fromSdk(context.client.cameraExposureLimits());
+  });
+}
+
+ExposureLimitsState Driver::setExposureLimits(uint32_t min_exposure_time_us,
+                                              uint32_t max_exposure_time_us,
+                                              uint32_t min_gain_x1024,
+                                              uint32_t max_gain_x1024) {
+  return impl_->invokeControl<ExposureLimitsState>(
+      [min_exposure_time_us, max_exposure_time_us, min_gain_x1024,
+       max_gain_x1024](auto& context) {
+        prism::ExposureLimits limits;
+        limits.min_exposure_time_us = min_exposure_time_us;
+        limits.max_exposure_time_us = max_exposure_time_us;
+        limits.min_gain_x1024 = min_gain_x1024;
+        limits.max_gain_x1024 = max_gain_x1024;
+        return fromSdk(context.client.setCameraExposureLimits(limits));
+      });
+}
+
+SystemTimeSyncState Driver::synchronizeSystemTime() {
+  return impl_->invokeControl<SystemTimeSyncState>(
+      [this](auto& context) { return impl_->synchronizeSystemTime(context); });
+}
 
 }  // namespace prism_ros_adapter

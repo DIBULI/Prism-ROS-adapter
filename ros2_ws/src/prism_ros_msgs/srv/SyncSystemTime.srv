@@ -1,0 +1,15 @@
+bool confirm
+---
+bool success
+string message
+int64 before_offset_us
+int64 applied_correction_us
+int64 after_offset_us
+int64 round_trip_us
+int64 jitter_us
+uint32 correction_passes
+bool system_time_set
+bool ptp_hardware_clock_set
+bool hardware_clock_set
+bool verified
+string rtc_device
