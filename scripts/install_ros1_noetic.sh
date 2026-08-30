@@ -15,4 +15,6 @@ catkin_make install \
   -DCMAKE_INSTALL_PREFIX="${INSTALL_PREFIX}" \
   -DPrismUsbSdk_DIR="${SDK_PREFIX}/lib/cmake/PrismUsbSdk"
 
-echo "Installed. Run: source ${INSTALL_PREFIX}/setup.bash"
+echo "Installed. Run:"
+echo "  source ${INSTALL_PREFIX}/setup.bash"
+echo "  export LD_LIBRARY_PATH=${SDK_PREFIX}/lib:\${LD_LIBRARY_PATH:-}"

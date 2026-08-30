@@ -22,3 +22,4 @@ colcon build --merge-install \
 echo "Installed. Run:"
 echo "  source ${INSTALL_PREFIX}/setup.bash"
 echo "  export AMENT_PREFIX_PATH=${INSTALL_PREFIX}:\${AMENT_PREFIX_PATH}"
+echo "  export LD_LIBRARY_PATH=${SDK_PREFIX}/lib:\${LD_LIBRARY_PATH:-}"

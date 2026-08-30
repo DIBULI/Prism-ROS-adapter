@@ -147,6 +147,7 @@ second is the adapter install prefix:
 cd /work/projects/prism-ros-adapter
 ./scripts/install_ros1_noetic.sh /opt/prism-sdk /opt/prism-ros/noetic
 source /opt/prism-ros/noetic/setup.bash
+export LD_LIBRARY_PATH="/opt/prism-sdk/lib:${LD_LIBRARY_PATH:-}"
 ```
 
 Start the default camera + board IMU + Mid-360 configuration:
@@ -182,6 +183,7 @@ source /opt/ros/jazzy/setup.bash
 ./scripts/install_ros2.sh /opt/prism-sdk /opt/prism-ros/jazzy
 source /opt/prism-ros/jazzy/setup.bash
 export AMENT_PREFIX_PATH="/opt/prism-ros/jazzy:${AMENT_PREFIX_PATH}"
+export LD_LIBRARY_PATH="/opt/prism-sdk/lib:${LD_LIBRARY_PATH:-}"
 ```
 
 Start the adapter:
