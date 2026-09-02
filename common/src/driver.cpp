@@ -1,5 +1,6 @@
 #include "prism_ros_adapter/driver.hpp"
 #include "prism_ros_adapter/device_time_resolver.hpp"
+#include "prism_ros_adapter/lidar_frame_accumulator.hpp"
 
 #include "prism/usb_sdk.hpp"
 
@@ -448,6 +449,7 @@ struct Driver::Impl {
       if (!context.lidar_stream) {
         throw std::runtime_error("LiDAR stream is unavailable");
       }
+      lidar_frame_accumulator.reset();
       context.lidar_stream->start(toSdkModel(config.lidar_model));
       context.lidar_started = true;
     }
@@ -510,6 +512,7 @@ struct Driver::Impl {
     if (context.lidar_started && context.lidar_stream) {
       context.lidar_stream->stop();
       context.lidar_started = false;
+      lidar_frame_accumulator.reset();
     }
 
     if (context.imu_started && context.imu_stream) {
@@ -740,28 +743,32 @@ struct Driver::Impl {
       dropped_unsynchronized.fetch_add(1);
       return;
     }
-    LidarPointBatch output;
-    output.batch_id = batch.batch_id;
-    output.timestamp_ns = resolved ? resolved->timestamp_ns : sdk_timestamp_ns;
+    LidarPointBatch source_batch;
+    source_batch.batch_id = batch.batch_id;
+    source_batch.timestamp_ns =
+        resolved ? resolved->timestamp_ns : sdk_timestamp_ns;
     if (resolved &&
         resolved->candidate == DeviceTimeCandidate::LidarRaw) {
       lidar_raw_timestamp_selected.fetch_add(1);
     } else {
       lidar_sdk_timestamp_selected.fetch_add(1);
     }
-    output.timestamp_raw = batch.timestamp_raw;
-    output.time_interval_100ns = batch.time_interval_100ns;
-    output.points.reserve(batch.points.size());
+    source_batch.timestamp_raw = batch.timestamp_raw;
+    source_batch.time_interval_100ns = batch.time_interval_100ns;
+    source_batch.points.reserve(batch.points.size());
     for (const auto& point : batch.points) {
-      output.points.push_back(
+      source_batch.points.push_back(
           {static_cast<float>(point.x_mm) * 0.001F,
            static_cast<float>(point.y_mm) * 0.001F,
            static_cast<float>(point.z_mm) * 0.001F,
-           point.reflectivity, point.tag});
+           point.reflectivity, point.tag, 0u});
     }
     lidar_batches.fetch_add(1);
-    lidar_points.fetch_add(output.points.size());
-    lidar_dispatch.push(std::move(output));
+    lidar_points.fetch_add(source_batch.points.size());
+    for (auto& frame :
+         lidar_frame_accumulator.append(std::move(source_batch))) {
+      lidar_dispatch.push(std::move(frame));
+    }
   }
 
   void dispatchLidarImu(const prism::LidarImuSample& sample) {
@@ -975,6 +982,7 @@ struct Driver::Impl {
     stop_requested.store(false);
     fatal_control_error.clear();
     device_time_resolver.reset();
+    lidar_frame_accumulator.reset();
     startDispatchers();
     prism::Client client = openClient();
     client.setKeepaliveEnabled(true);
@@ -1130,6 +1138,7 @@ struct Driver::Impl {
   std::atomic<uint64_t> lidar_sdk_timestamp_selected{0};
   std::atomic<uint64_t> dropped_unsynchronized{0};
   DeviceTimeResolver device_time_resolver;
+  LidarFrameAccumulator lidar_frame_accumulator;
 };
 
 Driver::Driver(DriverConfig config, DriverCallbacks callbacks)

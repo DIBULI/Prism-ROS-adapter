@@ -12,6 +12,7 @@ find_package(PrismUsbSdk 1.0.0 EXACT CONFIG REQUIRED)
 add_executable(prism_ros_driver_node
   src/prism_ros2_node.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/../../../common/src/driver.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../../common/src/lidar_frame_accumulator.cpp
 )
 target_compile_features(prism_ros_driver_node PRIVATE cxx_std_17)
 target_include_directories(prism_ros_driver_node PRIVATE

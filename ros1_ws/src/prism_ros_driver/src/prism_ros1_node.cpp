@@ -668,18 +668,24 @@ class PrismRos1Node {
     message.width = static_cast<uint32_t>(batch.points.size());
     message.is_bigendian = false;
     message.is_dense = true;
-    message.point_step = 16;
+    message.point_step = 20;
     message.row_step = message.point_step * message.width;
-    message.fields.resize(5);
-    const std::array<std::string, 5> names{"x", "y", "z", "intensity", "tag"};
-    const std::array<uint32_t, 5> offsets{0, 4, 8, 12, 13};
+    message.fields.resize(6);
+    const std::array<std::string, 6> names{
+        "x", "y", "z", "intensity", "tag", "offset_time"};
+    const std::array<uint32_t, 6> offsets{0, 4, 8, 12, 13, 16};
+    const std::array<uint8_t, 6> datatypes{
+        sensor_msgs::PointField::FLOAT32,
+        sensor_msgs::PointField::FLOAT32,
+        sensor_msgs::PointField::FLOAT32,
+        sensor_msgs::PointField::UINT8,
+        sensor_msgs::PointField::UINT8,
+        sensor_msgs::PointField::UINT32};
     for (size_t i = 0; i < message.fields.size(); ++i) {
       message.fields[i].name = names[i];
       message.fields[i].offset = offsets[i];
       message.fields[i].count = 1;
-      message.fields[i].datatype =
-          i < 3 ? sensor_msgs::PointField::FLOAT32
-                : sensor_msgs::PointField::UINT8;
+      message.fields[i].datatype = datatypes[i];
     }
     message.data.assign(message.row_step, 0u);
     for (size_t i = 0; i < batch.points.size(); ++i) {
@@ -690,6 +696,7 @@ class PrismRos1Node {
       std::memcpy(output + 8, &point.z_m, sizeof(float));
       output[12] = point.reflectivity;
       output[13] = point.tag;
+      std::memcpy(output + 16, &point.offset_time_ns, sizeof(uint32_t));
     }
     lidar_publisher_.publish(message);
   }

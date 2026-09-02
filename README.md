@@ -71,7 +71,7 @@ runtime prefixes with:
 | `/prism/camera0/image/compressed` ... `/prism/camera3/image/compressed` | `sensor_msgs/CompressedImage` | Four original MJPEG images; no decode/re-encode |
 | `/prism/camera/metadata` | `prism_ros_msgs/CameraFrameMetadata` | Shared trigger timestamp, frame IDs, exposure and gains for all cameras |
 | `/prism/imu0/data`, `/prism/imu1/data` | `sensor_msgs/Imu` | Board IMUs in m/s² and rad/s; only detected IMUs publish data |
-| `/prism/lidar/points` | `sensor_msgs/PointCloud2` | Mid-360/Mid-360S Cartesian points in metres, with `intensity` and `tag` fields |
+| `/prism/lidar/points` | `sensor_msgs/PointCloud2` | Mid-360/Mid-360S 10 Hz clouds with `x`, `y`, `z`, `intensity`, `tag`, and nanosecond `offset_time` fields |
 | `/prism/lidar/imu` | `sensor_msgs/Imu` | LiDAR-integrated IMU in m/s² and rad/s |
 | `/diagnostics` | `diagnostic_msgs/DiagnosticArray` | USB, sensor-board, stream counters and drop counters |
 
@@ -82,14 +82,21 @@ camera subscriber should therefore request reliable QoS. This preserves every
 complete MJPEG sample without applying back-pressure to the high-rate IMU and
 LiDAR topics.
 
-The camera stamp is the sensor-board trigger edge. LiDAR point stamps are the
-batch base time. The adapter does not interpolate per-point time and does not
-deskew the cloud. LiDAR transports expose both a raw PTP timestamp and an SDK
-normalized timestamp; the adapter automatically selects the representation
-that matches the camera/board-IMU device clock. This comparison uses monotonic
-arrival intervals and never uses the host wall clock. By default, samples that
-cannot be placed in the common device time domain are dropped so camera, board
-IMU, LiDAR points and LiDAR IMU do not silently mix clock domains.
+The camera stamp is the sensor-board trigger edge. The adapter combines the
+small Agent LiDAR transport batches into fixed 100 ms windows and publishes
+`/prism/lidar/points` at 10 Hz. A cloud's header stamp is its first point time;
+each point carries a `uint32 offset_time` in nanoseconds relative to that stamp,
+so the first point always has an offset of zero.
+The point time inside each source batch is derived from the SDK-provided
+first-to-last span, preserving the normal Mid-360 5 us point cadence. The
+adapter does not alter point coordinates or perform motion deskew.
+
+LiDAR transports expose both a raw PTP timestamp and an SDK normalized
+timestamp; the adapter automatically selects the representation that matches
+the camera/board-IMU device clock. This comparison uses monotonic arrival
+intervals and never uses the host wall clock. By default, samples that cannot
+be placed in the common device time domain are dropped so camera, board IMU,
+LiDAR points and LiDAR IMU do not silently mix clock domains.
 
 The adapter intentionally publishes compressed camera images. Consumers that
 need raw images can use `image_transport`/`compressed_image_transport`. Camera
@@ -469,6 +476,15 @@ IMU and LiDAR counters, no continuously growing dispatch-drop counter, and no
 USB permission/version error. If the device opens in Viewer but not in Docker,
 confirm no other process owns it and that `/dev/bus/usb` was passed into the
 container.
+
+For `/prism/lidar/points`, a healthy Mid-360/Mid-360S run reports approximately
+10 Hz, normally contains about 20,000 points per message, and exposes
+`offset_time` as `UINT32` at byte offset 16 with values in `[0, 100000000)` ns.
+With a running ROS 2 node, validate all of these invariants over 30 messages:
+
+```bash
+python3 scripts/verify_lidar_pointcloud_ros2.py
+```
 
 ## Release-tag CI
 

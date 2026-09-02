@@ -198,13 +198,14 @@ struct LidarPoint {
   float z_m = 0.0F;
   uint8_t reflectivity = 0;
   uint8_t tag = 0;
+  uint32_t offset_time_ns = 0;
 };
 
 struct LidarPointBatch {
   uint32_t batch_id = 0;
   uint64_t timestamp_ns = 0;
   uint64_t timestamp_raw = 0;
-  uint16_t time_interval_100ns = 0;
+  uint32_t time_interval_100ns = 0;
   std::vector<LidarPoint> points;
 };
 
