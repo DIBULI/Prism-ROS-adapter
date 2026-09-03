@@ -19,9 +19,10 @@ Git submodule needed to build them on the supported Ubuntu releases.
 | ROS 2 | Rolling Ridley | Ubuntu 26.04 currently | Supported, continuously changing |
 
 ROS 1 releases other than Noetic and end-of-life ROS 2 releases are not
-supported. Each ROS distribution uses the Prism USB SDK binary built for its
-base operating system, which avoids mixing incompatible glibc/OpenSSL
-binaries.
+supported. x86-64 uses a Prism USB SDK shared library built for each base
+operating system. ARM64 uses one static SDK archive and resolves OpenSSL,
+libusb, libstdc++ and glibc while building in the target ROS environment. This
+is the same cross-Ubuntu strategy used by Prism Viewer.
 
 ## Prism SDK Git submodule
 
@@ -41,7 +42,7 @@ git submodule update --init --recursive
 The SDK repository contains only:
 
 - public SDK headers;
-- the platform-specific `libprism_usb_sdk.so` dynamic library;
+- the platform-specific shared or static Prism USB SDK library;
 - exported CMake package configuration files; and
 - the Prism USB udev rule.
 
@@ -49,16 +50,19 @@ The Prism Agent and USB SDK implementation source are not included. Neither
 the local Docker build nor release CI checks out or compiles Agent source.
 The supported binary mapping is:
 
-| ROS distribution | SDK submodule runtime prefix |
-| --- | --- |
-| Noetic | `runtime/ros/ubuntu-20.04-x86_64` |
-| Humble | `runtime/ros/ubuntu-22.04-x86_64` |
-| Jazzy, Kilted | `runtime/ros/ubuntu-24.04-x86_64` |
-| Lyrical, Rolling | `runtime/ros/ubuntu-26.04-x86_64` |
+| Architecture | ROS distribution | SDK submodule runtime prefix |
+| --- | --- | --- |
+| x86-64 | Noetic | `runtime/ros/ubuntu-20.04-x86_64` |
+| x86-64 | Humble | `runtime/ros/ubuntu-22.04-x86_64` |
+| x86-64 | Jazzy, Kilted | `runtime/ros/ubuntu-24.04-x86_64` |
+| x86-64 | Lyrical, Rolling | `runtime/ros/ubuntu-26.04-x86_64` |
+| ARM64 | All supported distributions | `runtime/ros/linux-arm64` |
 
-All four payloads are part of the pinned Prism SDK `1.0.0` release and include
-the production `800 Hz` IMU runtime update. Verify the submodule and all ROS
-runtime prefixes with:
+All five payloads are part of the pinned Prism SDK `1.0.0` release and include
+the production `800 Hz` IMU runtime update. The build scripts detect x86-64 or
+ARM64 automatically; `PRISM_ROS_ARCH=arm64` can be used when building ARM64
+through emulation on an x86-64 host. Verify the submodule and all ROS runtime
+prefixes with:
 
 ```bash
 ./scripts/verify_sdk_submodule.sh all
@@ -258,7 +262,7 @@ lidar: true"
    adapter currently requires Prism USB SDK `1.0.0`.
 2. Select the SDK submodule runtime prefix for the host using the table above and
    install that complete binary prefix under `/opt/prism-sdk`. For example,
-   for ROS 2 Jazzy or Kilted:
+   for ROS 2 Jazzy or Kilted on x86-64:
 
    ```bash
    PRISM_SDK_PREFIX=third_party/Prism-SDK/runtime/ros/ubuntu-24.04-x86_64
@@ -266,8 +270,9 @@ lidar: true"
    sudo cp -a "${PRISM_SDK_PREFIX}/." /opt/prism-sdk/
    ```
 
-   Do not mix a dynamic library from one Ubuntu release with another
-   release's headers or CMake files.
+   On ARM64, use `runtime/ros/linux-arm64` for every supported Ubuntu/ROS
+   release. Do not mix a library from one prefix with another prefix's headers
+   or CMake files.
 3. Install the SDK udev rule and reconnect the USB cable:
 
    ```bash
@@ -291,7 +296,8 @@ Install ROS Noetic and the required binary packages:
 
 ```bash
 sudo apt update
-sudo apt install ros-noetic-ros-base ros-noetic-diagnostic-msgs \
+sudo apt install libssl-dev libusb-1.0-0-dev pkg-config \
+  ros-noetic-ros-base ros-noetic-diagnostic-msgs \
   ros-noetic-message-generation ros-noetic-message-runtime \
   ros-noetic-sensor-msgs
 ```
@@ -326,7 +332,8 @@ Install one supported ROS 2 distribution and its build dependencies. Replace
 ```bash
 source /opt/ros/jazzy/setup.bash
 sudo apt update
-sudo apt install ros-jazzy-diagnostic-msgs ros-jazzy-launch-ros \
+sudo apt install libssl-dev libusb-1.0-0-dev pkg-config \
+  ros-jazzy-diagnostic-msgs ros-jazzy-launch-ros \
   ros-jazzy-rosidl-default-generators ros-jazzy-sensor-msgs \
   ros-jazzy-std-msgs
 ```
@@ -385,12 +392,20 @@ Docker automatically selects the matching binary SDK prefix from the pinned
 `third_party/Prism-SDK` submodule and copies it into the ROS image. It never
 needs the Prism Agent repository and never compiles the USB SDK. To test an
 alternative binary-only SDK prefix, set `PRISM_USB_SDK_PREFIX`; the directory
-must contain the public headers, dynamic library, CMake package files and udev
-rule:
+must contain the public headers, matching shared or static library, CMake
+package files and udev rule:
 
 ```bash
 PRISM_USB_SDK_PREFIX=/path/to/prism-sdk-prefix \
   ./scripts/docker_build.sh jazzy
+```
+
+On an ARM64 host no extra option is needed. To cross-test the ARM64 image on an
+x86-64 Docker host with binfmt/QEMU enabled, set:
+
+```bash
+PRISM_ROS_ARCH=arm64 ./scripts/docker_build.sh jazzy
+PRISM_ROS_ARCH=arm64 ./scripts/docker_smoke_test.sh jazzy
 ```
 
 The build script first pulls ROS base images through `docker.1ms.run` and then
