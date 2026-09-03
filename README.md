@@ -26,8 +26,9 @@ is the same cross-Ubuntu strategy used by Prism Viewer.
 
 ## Prism SDK Git submodule
 
-This repository pins Prism SDK `1.0.0` as the
-`third_party/Prism-SDK` Git submodule. Clone recursively:
+This repository pins Prism SDK distribution `1.0.2` as the
+`third_party/Prism-SDK` Git submodule. That distribution contains the Host SDK
+1.0.0 runtime/ABI required by Agent 1.0.0. Clone recursively:
 
 ```bash
 git clone --recurse-submodules git@github.com:DIBULI/Prism-ROS-adapter.git
@@ -58,11 +59,11 @@ The supported binary mapping is:
 | x86-64 | Lyrical, Rolling | `runtime/ros/ubuntu-26.04-x86_64` |
 | ARM64 | All supported distributions | `runtime/ros/linux-arm64` |
 
-All five payloads are part of the pinned Prism SDK `1.0.0` release and include
-the production `800 Hz` IMU runtime update. The build scripts detect x86-64 or
-ARM64 automatically; `PRISM_ROS_ARCH=arm64` can be used when building ARM64
-through emulation on an x86-64 host. Verify the submodule and all ROS runtime
-prefixes with:
+All five payloads are part of the pinned Prism SDK `1.0.2` distribution and
+include the production Host SDK 1.0.0 runtime and `800 Hz` IMU update. The
+build scripts detect x86-64 or ARM64 automatically;
+`PRISM_ROS_ARCH=arm64` can be used when building ARM64 through emulation on an
+x86-64 host. Verify the submodule and all ROS runtime prefixes with:
 
 ```bash
 ./scripts/verify_sdk_submodule.sh all
@@ -267,8 +268,9 @@ lidar: true"
 
 ## Prerequisites
 
-1. Prism Agent and Host USB SDK must have exactly the same version. This
-   adapter currently requires Prism USB SDK `1.0.0`.
+1. Prism Agent and Host USB SDK runtime must have exactly the same version.
+   This adapter pins Prism SDK distribution `1.0.2`, whose runtime version is
+   `1.0.0`, and therefore requires Agent `1.0.0`.
 2. Select the SDK submodule runtime prefix for the host using the table above and
    install that complete binary prefix under `/opt/prism-sdk`. For example,
    for ROS 2 Jazzy or Kilted on x86-64:
@@ -523,6 +525,11 @@ With a running ROS 2 node, validate all of these invariants over 30 messages:
 ```bash
 python3 scripts/verify_lidar_pointcloud_ros2.py
 ```
+
+## Update notes
+
+- [Version 1.0.2](docs/update/v1.0.2.md)
+- [版本 1.0.2（中文）](docs/update/v1.0.2.zh-CN.md)
 
 ## Release-tag CI
 

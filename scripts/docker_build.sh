@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SDK_VERSION="1.0.0"
+SDK_RUNTIME_VERSION="1.0.0"
 SDK_REPOSITORY_ROOT="${PRISM_USB_SDK_ROOT:-${ROOT_DIR}/third_party/Prism-SDK}"
 SDK_PREFIX_ROOT="${SDK_REPOSITORY_ROOT}/runtime/ros"
 SDK_PREFIX_OVERRIDE="${PRISM_USB_SDK_PREFIX:-}"
@@ -91,9 +91,9 @@ validate_sdk_root() {
     fi
   done
 
-  if ! grep -Fq "${SDK_VERSION}" \
+  if ! grep -Fq "${SDK_RUNTIME_VERSION}" \
       "${sdk_root}/lib/cmake/PrismUsbSdk/PrismUsbSdkConfigVersion.cmake"; then
-    echo "Prism USB SDK binary prefix is not version ${SDK_VERSION}: ${sdk_root}" >&2
+    echo "Prism USB SDK binary prefix is not runtime version ${SDK_RUNTIME_VERSION}: ${sdk_root}" >&2
     return 1
   fi
 

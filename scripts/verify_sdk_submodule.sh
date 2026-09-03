@@ -2,7 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SDK_VERSION="1.0.0"
+SDK_DISTRIBUTION_VERSION="1.0.2"
+SDK_RUNTIME_VERSION="1.0.0"
 SDK_ROOT="${PRISM_USB_SDK_ROOT:-${ROOT_DIR}/third_party/Prism-SDK}"
 CHECKSUM_FILE="${SDK_ROOT}/SHA256SUMS"
 
@@ -138,9 +139,10 @@ verify_sdk_repository() {
     return 1
   fi
 
-  if ! grep -Fq 'project(PrismSdkExamples VERSION 1.0.0' \
+  if ! grep -Fq \
+      "project(PrismSdkExamples VERSION ${SDK_DISTRIBUTION_VERSION}" \
       "${SDK_ROOT}/CMakeLists.txt"; then
-    echo "Prism SDK submodule is not version ${SDK_VERSION}: ${SDK_ROOT}" >&2
+    echo "Prism SDK submodule is not distribution ${SDK_DISTRIBUTION_VERSION}: ${SDK_ROOT}" >&2
     return 1
   fi
   if ! grep -Fq 'constexpr uint8_t kProtocolVersion = 1;' \
@@ -186,9 +188,9 @@ verify_platform() {
     return 1
   fi
 
-  if ! grep -Fqx "set(PACKAGE_VERSION \"${SDK_VERSION}\")" \
+  if ! grep -Fqx "set(PACKAGE_VERSION \"${SDK_RUNTIME_VERSION}\")" \
       "${prefix}/lib/cmake/PrismUsbSdk/PrismUsbSdkConfigVersion.cmake"; then
-    echo "SDK runtime prefix is not version ${SDK_VERSION}: ${platform}" >&2
+    echo "SDK runtime prefix is not version ${SDK_RUNTIME_VERSION}: ${platform}" >&2
     return 1
   fi
 
@@ -224,7 +226,7 @@ verify_platform() {
     fi
   done
 
-  echo "Verified Prism SDK submodule ${SDK_VERSION}: ${platform}"
+  echo "Verified Prism SDK distribution ${SDK_DISTRIBUTION_VERSION}, runtime ${SDK_RUNTIME_VERSION}: ${platform}"
 }
 
 selection="${1:-all}"
