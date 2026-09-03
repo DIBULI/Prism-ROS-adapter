@@ -34,10 +34,7 @@ sdk_platform_for_distro() {
     return
   fi
   case "$1" in
-    noetic|foxy) echo "ubuntu-20.04-x86_64" ;;
-    humble) echo "ubuntu-22.04-x86_64" ;;
-    jazzy|kilted) echo "ubuntu-24.04-x86_64" ;;
-    lyrical|rolling) echo "ubuntu-26.04-x86_64" ;;
+    noetic|foxy|humble|jazzy|kilted|lyrical|rolling) echo "linux-x64" ;;
     *)
       echo "unsupported ROS distribution: $1" >&2
       return 2

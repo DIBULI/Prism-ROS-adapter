@@ -19,16 +19,16 @@ Git submodule needed to build them on the supported Ubuntu releases.
 | ROS 2 | Rolling Ridley | Ubuntu 26.04 currently | Supported, continuously changing |
 
 ROS 1 releases other than Noetic and end-of-life ROS 2 releases are not
-supported. x86-64 uses a Prism USB SDK shared library built for each base
-operating system. ARM64 uses one static SDK archive and resolves OpenSSL,
-libusb, libstdc++ and glibc while building in the target ROS environment. This
-is the same cross-Ubuntu strategy used by Prism Viewer.
+supported. x86-64 uses one Prism USB SDK shared library built on Ubuntu 20.04;
+OpenSSL is statically embedded so the same `.so` works across the supported
+Ubuntu releases. ARM64 uses one static SDK archive and resolves OpenSSL, libusb,
+libstdc++ and glibc while building in the target ROS environment.
 
 ## Prism SDK Git submodule
 
-This repository pins Prism SDK distribution `1.0.2` as the
-`third_party/Prism-SDK` Git submodule. That distribution contains the Host SDK
-1.0.0 runtime/ABI required by Agent 1.0.0. Clone recursively:
+This repository pins Prism SDK `1.0.0` as the `third_party/Prism-SDK` Git
+submodule. It contains the Host SDK 1.0.0 runtime/ABI required by Agent 1.0.0.
+Clone recursively:
 
 ```bash
 git clone --recurse-submodules git@github.com:DIBULI/Prism-ROS-adapter.git
@@ -53,14 +53,11 @@ The supported binary mapping is:
 
 | Architecture | ROS distribution | SDK submodule runtime prefix |
 | --- | --- | --- |
-| x86-64 | Noetic | `runtime/ros/ubuntu-20.04-x86_64` |
-| x86-64 | Humble | `runtime/ros/ubuntu-22.04-x86_64` |
-| x86-64 | Jazzy, Kilted | `runtime/ros/ubuntu-24.04-x86_64` |
-| x86-64 | Lyrical, Rolling | `runtime/ros/ubuntu-26.04-x86_64` |
+| x86-64 | All supported distributions | `runtime/ros/linux-x64` |
 | ARM64 | All supported distributions | `runtime/ros/linux-arm64` |
 
-All five payloads are part of the pinned Prism SDK `1.0.2` distribution and
-include the production Host SDK 1.0.0 runtime and `800 Hz` IMU update. The
+Both platform payloads are part of the pinned Prism SDK `1.0.0` release and include
+the production Host SDK 1.0.0 runtime and `800 Hz` IMU update. The
 build scripts detect x86-64 or ARM64 automatically;
 `PRISM_ROS_ARCH=arm64` can be used when building ARM64 through emulation on an
 x86-64 host. Verify the submodule and all ROS runtime prefixes with:
@@ -269,21 +266,20 @@ lidar: true"
 ## Prerequisites
 
 1. Prism Agent and Host USB SDK runtime must have exactly the same version.
-   This adapter pins Prism SDK distribution `1.0.2`, whose runtime version is
-   `1.0.0`, and therefore requires Agent `1.0.0`.
+   This adapter pins Prism SDK `1.0.0` and therefore requires Agent `1.0.0`.
 2. Select the SDK submodule runtime prefix for the host using the table above and
    install that complete binary prefix under `/opt/prism-sdk`. For example,
-   for ROS 2 Jazzy or Kilted on x86-64:
+   on x86-64:
 
    ```bash
-   PRISM_SDK_PREFIX=third_party/Prism-SDK/runtime/ros/ubuntu-24.04-x86_64
+   PRISM_SDK_PREFIX=third_party/Prism-SDK/runtime/ros/linux-x64
    sudo mkdir -p /opt/prism-sdk
    sudo cp -a "${PRISM_SDK_PREFIX}/." /opt/prism-sdk/
    ```
 
-   On ARM64, use `runtime/ros/linux-arm64` for every supported Ubuntu/ROS
-   release. Do not mix a library from one prefix with another prefix's headers
-   or CMake files.
+   On ARM64, use `runtime/ros/linux-arm64`. Both architecture prefixes cover
+   every supported Ubuntu/ROS release. Do not mix a library from one prefix
+   with another prefix's headers or CMake files.
 3. Install the SDK udev rule and reconnect the USB cable:
 
    ```bash
@@ -528,8 +524,8 @@ python3 scripts/verify_lidar_pointcloud_ros2.py
 
 ## Update notes
 
-- [Version 1.0.2](docs/update/v1.0.2.md)
-- [版本 1.0.2（中文）](docs/update/v1.0.2.zh-CN.md)
+- [Version 1.0.0](docs/update/v1.0.0.md)
+- [版本 1.0.0（中文）](docs/update/v1.0.0.zh-CN.md)
 
 ## Release-tag CI
 

@@ -2,16 +2,13 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SDK_DISTRIBUTION_VERSION="1.0.2"
+SDK_DISTRIBUTION_VERSION="1.0.0"
 SDK_RUNTIME_VERSION="1.0.0"
 SDK_ROOT="${PRISM_USB_SDK_ROOT:-${ROOT_DIR}/third_party/Prism-SDK}"
 CHECKSUM_FILE="${SDK_ROOT}/SHA256SUMS"
 
 SUPPORTED_PLATFORMS=(
-  ubuntu-20.04-x86_64
-  ubuntu-22.04-x86_64
-  ubuntu-24.04-x86_64
-  ubuntu-26.04-x86_64
+  linux-x64
   linux-arm64
 )
 
@@ -40,16 +37,15 @@ usage() {
 usage: scripts/verify_sdk_submodule.sh [all|PLATFORM|ROS_DISTRO]
 
 Platforms:
-  ubuntu-20.04-x86_64  ubuntu-22.04-x86_64
-  ubuntu-24.04-x86_64  ubuntu-26.04-x86_64
-  linux-arm64
+  linux-x64  linux-arm64
 
 ROS distributions:
   noetic  foxy  humble  jazzy  kilted  lyrical  rolling
 
 ROS distribution names select linux-arm64 on an arm64 host and the matching
 Ubuntu x86_64 prefix on an x86_64 host. Set PRISM_ROS_ARCH to override host
-architecture detection.
+architecture detection. Every supported ROS distribution uses the same prefix
+for a given architecture.
 EOF
 }
 
@@ -72,17 +68,8 @@ SDK_ARCH="$(normalize_arch "${PRISM_ROS_ARCH:-$(uname -m)}")"
 
 platform_for() {
   case "$1" in
-    ubuntu-20.04-x86_64)
-      printf '%s\n' ubuntu-20.04-x86_64
-      ;;
-    ubuntu-22.04-x86_64)
-      printf '%s\n' ubuntu-22.04-x86_64
-      ;;
-    ubuntu-24.04-x86_64)
-      printf '%s\n' ubuntu-24.04-x86_64
-      ;;
-    ubuntu-26.04-x86_64)
-      printf '%s\n' ubuntu-26.04-x86_64
+    linux-x64)
+      printf '%s\n' linux-x64
       ;;
     linux-arm64)
       printf '%s\n' linux-arm64
@@ -91,12 +78,7 @@ platform_for() {
       if [[ "${SDK_ARCH}" == arm64 ]]; then
         printf '%s\n' linux-arm64
       else
-        case "$1" in
-          noetic|foxy) printf '%s\n' ubuntu-20.04-x86_64 ;;
-          humble) printf '%s\n' ubuntu-22.04-x86_64 ;;
-          jazzy|kilted) printf '%s\n' ubuntu-24.04-x86_64 ;;
-          lyrical|rolling) printf '%s\n' ubuntu-26.04-x86_64 ;;
-        esac
+        printf '%s\n' linux-x64
       fi
       ;;
     *)
@@ -156,13 +138,14 @@ verify_platform() {
   local platform="$1"
   local prefix="${SDK_ROOT}/runtime/ros/${platform}"
   local file relative_path expected actual count description library
-  local object_headers
+  local dynamic_entries object_headers
   local -a expected_prefix_files=("${EXPECTED_PREFIX_FILES[@]}")
 
   if [[ "${platform}" == linux-arm64 ]]; then
     library=lib/libprism_usb_sdk.a
   else
     library=lib/libprism_usb_sdk.so
+    expected_prefix_files+=(share/licenses/PrismUsbSdk/openssl-LICENSE.txt)
   fi
   expected_prefix_files+=("${library}")
 
@@ -207,6 +190,18 @@ verify_platform() {
           ( "${description}" != *"x86-64"* && "${description}" != *"x86_64"* ) ]]; then
     echo "SDK runtime is not an x86_64 ELF shared library: ${description}" >&2
     return 1
+  else
+    dynamic_entries="$(readelf -d "${prefix}/${library}")"
+    if ! grep -Fq 'Shared library: [libusb-1.0.so.0]' \
+        <<<"${dynamic_entries}"; then
+      echo "Unified x86_64 SDK does not depend on libusb-1.0.so.0" >&2
+      return 1
+    fi
+    if grep -Eq 'Shared library: \[lib(ssl|crypto)\.so' \
+        <<<"${dynamic_entries}"; then
+      echo "Unified x86_64 SDK must not depend on dynamic OpenSSL" >&2
+      return 1
+    fi
   fi
 
   for file in "${expected_prefix_files[@]}"; do
