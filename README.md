@@ -172,7 +172,7 @@ exit status.
 | `device/set_configuration` | `confirm`; `set_camera_fps` + `camera_fps`; `set_imu_rate_hz` + `imu_rate_hz`; `set_mjpeg_quality` + `mjpeg_quality` | Set at least one selector. Unselected fields are preserved. The currently supported ranges are FPS 1–30, IMU 800 Hz, and MJPEG quality 1–99. |
 | `lidar/get_status` | none | Safe during streaming; returns model, live receive state, serial/IP, and counters. |
 | `lidar/get_network` | none | Returns saved network values and the current `end0`-side interface/link status. It briefly pauses and restores streams. |
-| `lidar/set_network` | `confirm`, `enabled`, `host_ip`, `netmask`, `lidar_ip` | Persists all LiDAR-network fields as one configuration. It does not infer the model or address. |
+| `lidar/set_network` | `confirm`, `enabled`, `host_ip`, `netmask`, `lidar_ip` | Persists all LiDAR-network fields as one configuration. Select the LiDAR model separately with the `lidar_model` startup parameter. |
 | `lidar/probe_network` | none | Applies/checks the host-side configuration and reports `same_subnet` and `target_reachable`. |
 | `streams/get_state` | none | `*_enabled` is the requested runtime configuration; `*_active` confirms that the SDK stream actually started. |
 | `streams/control` | `command`, `camera`, `board_imu`, `lidar` | `command` is exactly `start`, `stop`, or `restart`; select at least one stream. `restart` requires every selected stream to be enabled already. |
@@ -237,6 +237,15 @@ rosservice call /prism/camera/set_target_brightness "target_brightness: 35"
 rosservice call /prism/system/sync_time "confirm: true"
 rosservice call /prism/device/get_info
 rosservice call /prism/streams/get_state
+rosservice call /prism/lidar/get_status
+rosservice call /prism/lidar/get_network
+rosservice call /prism/lidar/set_network \
+  "confirm: true
+enabled: true
+host_ip: '192.168.1.5'
+netmask: '255.255.255.0'
+lidar_ip: '192.168.1.194'"
+rosservice call /prism/lidar/probe_network
 rosservice call /prism/device/set_configuration \
   "confirm: true
 set_camera_fps: true
@@ -376,8 +385,19 @@ Important parameters:
 | `require_synchronized_timestamps` | `true` | Drop samples that are not in the common RK time domain |
 | `topic_prefix` | `/prism` | Prefix for all data topics |
 
-The LiDAR network address is configured by Prism Viewer/USB SDK before the
-adapter starts. The ROS adapter does not alter `end0` or LiDAR IP settings.
+`lidar_model` selects the SDK stream implementation when the adapter starts; it
+is not a persisted device setting and cannot be changed while the adapter is
+running. Pass `lidar_model:=mid360s` at launch for a Mid-360S, or use the
+default `mid360` for a Mid-360.
+
+LiDAR network settings can be managed through the ROS Adapter. The
+`/prism/lidar/set_network` service persists `enabled`, the RK `end0` address,
+netmask, and LiDAR address; `confirm` must be `true`. The adapter temporarily
+pauses active streams for the configuration operation and then restores them.
+Use `/prism/lidar/get_network` to read the saved and live interface state and
+`/prism/lidar/probe_network` to apply/check the host-side configuration and
+test target reachability. The adapter does not infer the model or IP address,
+so both must match the connected LiDAR.
 
 ## Docker build
 
