@@ -2,6 +2,19 @@ cmake_minimum_required(VERSION 3.10)
 project(prism_ros_driver)
 
 find_package(ament_cmake REQUIRED)
+if("$ENV{ROS_DISTRO}" STREQUAL "humble")
+  # Prime Humble's generated ament library resolver. On AArch64/QEMU its
+  # generic _lib lookup can otherwise cache a false NOTFOUND result even when
+  # the exported library exists in the ROS prefix.
+  get_filename_component(PRISM_ROS_PREFIX
+    "${ament_cmake_DIR}/../../.." ABSOLUTE)
+  find_library(PRISM_HUMBLE_BUILTIN_INTERFACES_GENERATOR_C
+    NAMES builtin_interfaces__rosidl_generator_c
+    PATHS "${PRISM_ROS_PREFIX}/lib"
+    NO_DEFAULT_PATH NO_CMAKE_FIND_ROOT_PATH
+    REQUIRED)
+  mark_as_advanced(PRISM_HUMBLE_BUILTIN_INTERFACES_GENERATOR_C)
+endif()
 find_package(diagnostic_msgs REQUIRED)
 find_package(prism_ros_msgs REQUIRED)
 find_package(rclcpp REQUIRED)

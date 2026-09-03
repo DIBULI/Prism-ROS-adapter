@@ -34,7 +34,7 @@ sdk_platform_for_distro() {
     return
   fi
   case "$1" in
-    noetic) echo "ubuntu-20.04-x86_64" ;;
+    noetic|foxy) echo "ubuntu-20.04-x86_64" ;;
     humble) echo "ubuntu-22.04-x86_64" ;;
     jazzy|kilted) echo "ubuntu-24.04-x86_64" ;;
     lyrical|rolling) echo "ubuntu-26.04-x86_64" ;;
@@ -183,15 +183,15 @@ fi
 
 case "${TARGET}" in
   noetic) build_ros1 ;;
-  humble|jazzy|kilted|lyrical|rolling) build_ros2 "$1" ;;
+  foxy|humble|jazzy|kilted|lyrical|rolling) build_ros2 "$1" ;;
   all)
     build_ros1
-    for distro in humble jazzy kilted lyrical rolling; do
+    for distro in foxy humble jazzy kilted lyrical rolling; do
       build_ros2 "${distro}"
     done
     ;;
   *)
-    echo "usage: $0 [all|noetic|humble|jazzy|kilted|lyrical|rolling]" >&2
+    echo "usage: $0 [all|noetic|foxy|humble|jazzy|kilted|lyrical|rolling]" >&2
     exit 2
     ;;
 esac

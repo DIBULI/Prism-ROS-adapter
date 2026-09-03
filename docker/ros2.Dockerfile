@@ -11,8 +11,10 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
       libusb-1.0-0-dev \
       pkg-config \
       ros-${ROS_DISTRO}-diagnostic-msgs \
+      ros-${ROS_DISTRO}-builtin-interfaces \
       ros-${ROS_DISTRO}-launch-ros \
       ros-${ROS_DISTRO}-rosidl-default-generators \
+      ros-${ROS_DISTRO}-rosidl-default-runtime \
       ros-${ROS_DISTRO}-sensor-msgs \
       ros-${ROS_DISTRO}-std-msgs \
     && rm -rf /var/lib/apt/lists/*
