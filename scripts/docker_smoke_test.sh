@@ -73,8 +73,10 @@ case "${DISTRO}" in
       grep -q "bool confirm" <<<"${time_service}"
       grep -q "int64 after_offset_us" <<<"${time_service}"
       device_info_service="$(ros2 interface show prism_ros_msgs/srv/GetDeviceInfo)"
-      grep -q "string host_sdk_version" <<<"${device_info_service}"
-      grep -q "string sensor_board_version" <<<"${device_info_service}"
+      grep -q "DeviceInfo info" <<<"${device_info_service}"
+      device_info="$(ros2 interface show prism_ros_msgs/msg/DeviceInfo)"
+      grep -q "string host_sdk_version" <<<"${device_info}"
+      grep -q "string sensor_board_version" <<<"${device_info}"
       device_config_service="$(ros2 interface show prism_ros_msgs/srv/SetDeviceConfiguration)"
       grep -q "bool set_camera_fps" <<<"${device_config_service}"
       grep -q "uint32 mjpeg_quality" <<<"${device_config_service}"
@@ -86,7 +88,8 @@ case "${DISTRO}" in
       grep -q "bool board_imu" <<<"${stream_service}"
       wifi_service="$(ros2 interface show prism_ros_msgs/srv/SetWifiHotspot)"
       grep -q "bool enabled" <<<"${wifi_service}"
-      grep -q "bool persisted" <<<"${wifi_service}"
+      wifi_status="$(ros2 interface show prism_ros_msgs/msg/WifiHotspotStatus)"
+      grep -q "bool persisted" <<<"${wifi_status}"
       ros2 launch prism_ros_driver prism.launch.py --show-args >/dev/null
     '
     check_linkage "prism-ros-adapter:${DISTRO}" \
