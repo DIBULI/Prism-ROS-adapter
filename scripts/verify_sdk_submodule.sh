@@ -44,7 +44,7 @@ Platforms:
   linux-arm64
 
 ROS distributions:
-  noetic  humble  jazzy  kilted  lyrical  rolling
+  noetic  foxy  humble  jazzy  kilted  lyrical  rolling
 
 ROS distribution names select linux-arm64 on an arm64 host and the matching
 Ubuntu x86_64 prefix on an x86_64 host. Set PRISM_ROS_ARCH to override host
@@ -86,12 +86,12 @@ platform_for() {
     linux-arm64)
       printf '%s\n' linux-arm64
       ;;
-    noetic|humble|jazzy|kilted|lyrical|rolling)
+    noetic|foxy|humble|jazzy|kilted|lyrical|rolling)
       if [[ "${SDK_ARCH}" == arm64 ]]; then
         printf '%s\n' linux-arm64
       else
         case "$1" in
-          noetic) printf '%s\n' ubuntu-20.04-x86_64 ;;
+          noetic|foxy) printf '%s\n' ubuntu-20.04-x86_64 ;;
           humble) printf '%s\n' ubuntu-22.04-x86_64 ;;
           jazzy|kilted) printf '%s\n' ubuntu-24.04-x86_64 ;;
           lyrical|rolling) printf '%s\n' ubuntu-26.04-x86_64 ;;

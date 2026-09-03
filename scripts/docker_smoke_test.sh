@@ -59,7 +59,7 @@ case "${DISTRO}" in
     check_linkage prism-ros-adapter:noetic \
       /opt/prism-ros1/lib/prism_ros_driver/prism_ros_driver_node
     ;;
-  humble|jazzy|kilted|lyrical|rolling)
+  foxy|humble|jazzy|kilted|lyrical|rolling)
     docker run --rm --platform "${DOCKER_PLATFORM}" \
       "prism-ros-adapter:${DISTRO}" bash -lc '
       set -euo pipefail
@@ -93,7 +93,7 @@ case "${DISTRO}" in
       /opt/prism-ros2/lib/prism_ros_driver/prism_ros_driver_node
     ;;
   *)
-    echo "usage: $0 [noetic|humble|jazzy|kilted|lyrical|rolling]" >&2
+    echo "usage: $0 [noetic|foxy|humble|jazzy|kilted|lyrical|rolling]" >&2
     exit 2
     ;;
 esac

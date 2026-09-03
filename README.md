@@ -327,14 +327,17 @@ roslaunch prism_ros_driver prism.launch lidar_model:=mid360s
 ## Install ROS 2
 
 Install one supported ROS 2 distribution and its build dependencies. Replace
-`jazzy` below with `humble`, `kilted`, `lyrical`, or `rolling`:
+`jazzy` below with `foxy`, `humble`, `kilted`, `lyrical`, or `rolling`. Foxy
+runs on Ubuntu 20.04 and is supported for reproducible legacy deployments, but
+is end-of-life upstream:
 
 ```bash
 source /opt/ros/jazzy/setup.bash
 sudo apt update
 sudo apt install libssl-dev libusb-1.0-0-dev pkg-config \
   ros-jazzy-diagnostic-msgs ros-jazzy-launch-ros \
-  ros-jazzy-rosidl-default-generators ros-jazzy-sensor-msgs \
+  ros-jazzy-builtin-interfaces ros-jazzy-rosidl-default-generators \
+  ros-jazzy-rosidl-default-runtime ros-jazzy-sensor-msgs \
   ros-jazzy-std-msgs
 ```
 
@@ -506,10 +509,11 @@ python3 scripts/verify_lidar_pointcloud_ros2.py
 Pushing a tag matching `v*` runs `.github/workflows/release-tag-test.yml`.
 The workflow checks that the tag version matches all four ROS package
 manifests, runs the ROS-independent unit tests, then builds and smoke-tests
-ROS 1 Noetic and every supported ROS 2 distribution. It verifies the pinned
-SDK submodule checksums and binary-only runtime-prefix boundary before
-building. The workflow uses only the public headers and platform-specific
-dynamic libraries in the SDK repository; it never checks out Agent source.
+ROS 1 Noetic and every supported ROS 2 distribution on both x86-64 and native
+ARM64 runners. It verifies the pinned SDK submodule checksums and binary-only
+runtime-prefix boundary before building. The workflow uses only the public
+headers and platform-specific binary libraries in the SDK repository; it never
+checks out Agent source.
 After every matrix job succeeds, the tag workflow publishes a recursive source
 archive containing the exact pinned SDK submodule as a GitHub Release.
 

@@ -67,7 +67,7 @@ jobs:
         run: ctest --test-dir build-common --output-on-failure
 
   ros-build:
-    name: ${{ matrix.generation }} ${{ matrix.distro }}
+    name: x86-64 ${{ matrix.generation }} ${{ matrix.distro }}
     needs: common-test
     runs-on: ubuntu-24.04
     strategy:
@@ -77,6 +77,8 @@ jobs:
         include:
           - generation: ROS 1
             distro: noetic
+          - generation: ROS 2
+            distro: foxy
           - generation: ROS 2
             distro: humble
           - generation: ROS 2
@@ -105,9 +107,59 @@ jobs:
       - name: Smoke-test ${{ matrix.distro }} container
         run: ./scripts/docker_smoke_test.sh "${{ matrix.distro }}"
 
+  ros-arm64-build:
+    name: ARM64 ${{ matrix.generation }} ${{ matrix.distro }}
+    needs: common-test
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        include:
+          - generation: ROS 1
+            distro: noetic
+          - generation: ROS 2
+            distro: foxy
+          - generation: ROS 2
+            distro: humble
+          - generation: ROS 2
+            distro: jazzy
+          - generation: ROS 2
+            distro: kilted
+          - generation: ROS 2
+            distro: lyrical
+          - generation: ROS 2
+            distro: rolling
+    steps:
+      - name: Checkout adapter
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Verify native ARM64 runner
+        run: test "$(uname -m)" = aarch64
+
+      - name: Verify ${{ matrix.distro }} ARM64 SDK runtime
+        env:
+          PRISM_ROS_ARCH: arm64
+        run: bash scripts/verify_sdk_submodule.sh "${{ matrix.distro }}"
+
+      - name: Build ${{ matrix.distro }} ARM64 container
+        env:
+          DOCKER_BUILDKIT: "1"
+          PRISM_ROS_ARCH: arm64
+        run: ./scripts/docker_build.sh "${{ matrix.distro }}"
+
+      - name: Smoke-test ${{ matrix.distro }} ARM64 container
+        env:
+          PRISM_ROS_ARCH: arm64
+        run: ./scripts/docker_smoke_test.sh "${{ matrix.distro }}"
+
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [common-test, ros-build]
+    needs: [common-test, ros-build, ros-arm64-build]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
