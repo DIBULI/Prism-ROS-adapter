@@ -11,6 +11,7 @@ SUPPORTED_PLATFORMS=(
   ubuntu-22.04-x86_64
   ubuntu-24.04-x86_64
   ubuntu-26.04-x86_64
+  linux-arm64
 )
 
 EXPECTED_PREFIX_FILES=(
@@ -30,7 +31,6 @@ EXPECTED_PREFIX_FILES=(
   lib/cmake/PrismUsbSdk/PrismUsbSdkConfigVersion.cmake
   lib/cmake/PrismUsbSdk/PrismUsbSdkTargets-release.cmake
   lib/cmake/PrismUsbSdk/PrismUsbSdkTargets.cmake
-  lib/libprism_usb_sdk.so
   lib/udev/rules.d/99-prism-usb.rules
 )
 
@@ -41,25 +41,62 @@ usage: scripts/verify_sdk_submodule.sh [all|PLATFORM|ROS_DISTRO]
 Platforms:
   ubuntu-20.04-x86_64  ubuntu-22.04-x86_64
   ubuntu-24.04-x86_64  ubuntu-26.04-x86_64
+  linux-arm64
 
 ROS distributions:
   noetic  humble  jazzy  kilted  lyrical  rolling
+
+ROS distribution names select linux-arm64 on an arm64 host and the matching
+Ubuntu x86_64 prefix on an x86_64 host. Set PRISM_ROS_ARCH to override host
+architecture detection.
 EOF
 }
 
+normalize_arch() {
+  case "$1" in
+    x86_64|amd64|x64)
+      printf '%s\n' x86_64
+      ;;
+    aarch64|arm64)
+      printf '%s\n' arm64
+      ;;
+    *)
+      echo "unsupported host architecture: $1" >&2
+      return 2
+      ;;
+  esac
+}
+
+SDK_ARCH="$(normalize_arch "${PRISM_ROS_ARCH:-$(uname -m)}")"
+
 platform_for() {
   case "$1" in
-    noetic|ubuntu-20.04-x86_64)
+    ubuntu-20.04-x86_64)
       printf '%s\n' ubuntu-20.04-x86_64
       ;;
-    humble|ubuntu-22.04-x86_64)
+    ubuntu-22.04-x86_64)
       printf '%s\n' ubuntu-22.04-x86_64
       ;;
-    jazzy|kilted|ubuntu-24.04-x86_64)
+    ubuntu-24.04-x86_64)
       printf '%s\n' ubuntu-24.04-x86_64
       ;;
-    lyrical|rolling|ubuntu-26.04-x86_64)
+    ubuntu-26.04-x86_64)
       printf '%s\n' ubuntu-26.04-x86_64
+      ;;
+    linux-arm64)
+      printf '%s\n' linux-arm64
+      ;;
+    noetic|humble|jazzy|kilted|lyrical|rolling)
+      if [[ "${SDK_ARCH}" == arm64 ]]; then
+        printf '%s\n' linux-arm64
+      else
+        case "$1" in
+          noetic) printf '%s\n' ubuntu-20.04-x86_64 ;;
+          humble) printf '%s\n' ubuntu-22.04-x86_64 ;;
+          jazzy|kilted) printf '%s\n' ubuntu-24.04-x86_64 ;;
+          lyrical|rolling) printf '%s\n' ubuntu-26.04-x86_64 ;;
+        esac
+      fi
       ;;
     *)
       return 1
@@ -116,7 +153,16 @@ verify_sdk_repository() {
 verify_platform() {
   local platform="$1"
   local prefix="${SDK_ROOT}/runtime/ros/${platform}"
-  local file relative_path expected actual count description
+  local file relative_path expected actual count description library
+  local object_headers
+  local -a expected_prefix_files=("${EXPECTED_PREFIX_FILES[@]}")
+
+  if [[ "${platform}" == linux-arm64 ]]; then
+    library=lib/libprism_usb_sdk.a
+  else
+    library=lib/libprism_usb_sdk.so
+  fi
+  expected_prefix_files+=("${library}")
 
   if [[ ! -d "${prefix}" ]]; then
     echo "Missing SDK submodule runtime prefix: ${prefix}" >&2
@@ -134,7 +180,7 @@ verify_platform() {
     return 1
   fi
   if ! diff -u \
-      <(printf '%s\n' "${EXPECTED_PREFIX_FILES[@]}" | LC_ALL=C sort) \
+      <(printf '%s\n' "${expected_prefix_files[@]}" | LC_ALL=C sort) \
       <(cd "${prefix}" && find . -type f -print | sed 's#^\./##' | LC_ALL=C sort); then
     echo "SDK runtime prefix boundary mismatch: ${platform}" >&2
     return 1
@@ -146,15 +192,22 @@ verify_platform() {
     return 1
   fi
 
-  description="$(file -b "${prefix}/lib/libprism_usb_sdk.so")"
-  if [[ "${description}" != *"ELF 64-bit"* ||
-        "${description}" != *"shared object"* ||
-        ( "${description}" != *"x86-64"* && "${description}" != *"x86_64"* ) ]]; then
+  description="$(file -b "${prefix}/${library}")"
+  if [[ "${platform}" == linux-arm64 ]]; then
+    object_headers="$(readelf -h "${prefix}/${library}")"
+    if [[ "${description}" != *"current ar archive"* ]] ||
+        ! grep -Eq 'Machine:[[:space:]]+AArch64' <<<"${object_headers}"; then
+      echo "SDK runtime is not an arm64 static archive: ${description}" >&2
+      return 1
+    fi
+  elif [[ "${description}" != *"ELF 64-bit"* ||
+          "${description}" != *"shared object"* ||
+          ( "${description}" != *"x86-64"* && "${description}" != *"x86_64"* ) ]]; then
     echo "SDK runtime is not an x86_64 ELF shared library: ${description}" >&2
     return 1
   fi
 
-  for file in "${EXPECTED_PREFIX_FILES[@]}"; do
+  for file in "${expected_prefix_files[@]}"; do
     relative_path="runtime/ros/${platform}/${file}"
     count="$(checksum_for "${relative_path}" | wc -l | tr -d '[:space:]')"
     if [[ "${count}" != 1 ]]; then

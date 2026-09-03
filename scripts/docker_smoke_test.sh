@@ -3,10 +3,19 @@ set -euo pipefail
 
 DISTRO="${1:-}"
 
+case "${PRISM_ROS_ARCH:-$(uname -m)}" in
+  x86_64|amd64|x64) DOCKER_PLATFORM=linux/amd64 ;;
+  aarch64|arm64) DOCKER_PLATFORM=linux/arm64 ;;
+  *)
+    echo "unsupported host architecture: ${PRISM_ROS_ARCH:-$(uname -m)}" >&2
+    exit 2
+    ;;
+esac
+
 check_linkage() {
   local image="$1"
   local node="$2"
-  docker run --rm "${image}" bash -lc "
+  docker run --rm --platform "${DOCKER_PLATFORM}" "${image}" bash -lc "
     set -euo pipefail
     test -x '${node}'
     if ldd '${node}' | grep -q 'not found'; then
@@ -18,7 +27,8 @@ check_linkage() {
 
 case "${DISTRO}" in
   noetic)
-    docker run --rm prism-ros-adapter:noetic bash -lc '
+    docker run --rm --platform "${DOCKER_PLATFORM}" \
+      prism-ros-adapter:noetic bash -lc '
       set -euo pipefail
       rospack find prism_ros_driver >/dev/null
       interface_text="$(rosmsg show prism_ros_msgs/CameraFrameMetadata)"
@@ -50,7 +60,8 @@ case "${DISTRO}" in
       /opt/prism-ros1/lib/prism_ros_driver/prism_ros_driver_node
     ;;
   humble|jazzy|kilted|lyrical|rolling)
-    docker run --rm "prism-ros-adapter:${DISTRO}" bash -lc '
+    docker run --rm --platform "${DOCKER_PLATFORM}" \
+      "prism-ros-adapter:${DISTRO}" bash -lc '
       set -euo pipefail
       ros2 pkg prefix prism_ros_driver >/dev/null
       interface_text="$(ros2 interface show prism_ros_msgs/msg/CameraFrameMetadata)"
