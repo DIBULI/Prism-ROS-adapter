@@ -1,12 +1,8 @@
 <launch>
   <arg name="config" default="$(find prism_ros_driver)/config/default.yaml" />
-  <arg name="lidar_enabled" default="true" />
-  <arg name="lidar_model" default="mid360" />
 
   <node pkg="prism_ros_driver" type="prism_ros_driver_node"
         name="prism_ros_driver" output="screen">
     <rosparam command="load" file="$(arg config)" />
-    <param name="lidar_enabled" value="$(arg lidar_enabled)" />
-    <param name="lidar_model" value="$(arg lidar_model)" />
   </node>
 </launch>

@@ -142,7 +142,10 @@ clock synchronization while idle. The adapter restores the original stream
 configuration before returning. Make sure the ROS host clock is correct before
 calling it.
 
-Persistent device, LiDAR-network, and Wi-Fi writes also require `confirm: true`.
+Persistent device, LiDAR-network, and Wi-Fi service writes also require
+`confirm: true`. For the separate startup path,
+`lidar_network_apply_on_start: true` is the explicit authorization to compare
+and, when needed, persist the network fields from YAML.
 Device configuration currently accepts Camera FPS 1–30, board-IMU rate
 800 Hz, and MJPEG quality 1–99; unsupported values are rejected by the SDK.
 The request has one `set_*` selector per device field, so omitted fields remain
@@ -174,7 +177,7 @@ exit status.
 | `device/set_configuration` | `confirm`; `set_camera_fps` + `camera_fps`; `set_imu_rate_hz` + `imu_rate_hz`; `set_mjpeg_quality` + `mjpeg_quality` | Set at least one selector. Unselected fields are preserved. The currently supported ranges are FPS 1–30, IMU 800 Hz, and MJPEG quality 1–99. |
 | `lidar/get_status` | none | Safe during streaming; returns model, live receive state, serial/IP, and counters. |
 | `lidar/get_network` | none | Returns saved network values and the current `end0`-side interface/link status. It briefly pauses and restores streams. |
-| `lidar/set_network` | `confirm`, `enabled`, `host_ip`, `netmask`, `lidar_ip` | Persists all LiDAR-network fields as one configuration. Select the LiDAR model separately with the `lidar_model` startup parameter. |
+| `lidar/set_network` | `confirm`, `enabled`, `host_ip`, `netmask`, `lidar_ip` | Persists all LiDAR-network fields as one configuration. Select the LiDAR model separately with `lidar_model` in the startup YAML. |
 | `lidar/probe_network` | none | Applies/checks the host-side configuration and reports `same_subnet` and `target_reachable`. |
 | `streams/get_state` | none | `*_enabled` is the requested runtime configuration; `*_active` confirms that the SDK stream actually started. |
 | `streams/control` | `command`, `camera`, `board_imu`, `lidar` | `command` is exactly `start`, `stop`, or `restart`; select at least one stream. `restart` requires every selected stream to be enabled already. |
@@ -319,16 +322,19 @@ source /opt/prism-ros/noetic/setup.bash
 export LD_LIBRARY_PATH="/opt/prism-sdk/lib:${LD_LIBRARY_PATH:-}"
 ```
 
-Start the default camera + board IMU + Mid-360 configuration:
+Start the default camera + board IMU configuration. LiDAR streaming is disabled
+by default:
 
 ```bash
 roslaunch prism_ros_driver prism.launch
 ```
 
-For Mid-360S:
+To enable and configure LiDAR at launch, copy the ROS 1 YAML, edit its
+`lidar_*` fields, and pass the copied file to the launch command:
 
 ```bash
-roslaunch prism_ros_driver prism.launch lidar_model:=mid360s
+cp "$(rospack find prism_ros_driver)/config/default.yaml" /tmp/prism-ros1.yaml
+roslaunch prism_ros_driver prism.launch config:=/tmp/prism-ros1.yaml
 ```
 
 ## Install ROS 2
@@ -365,10 +371,13 @@ Start the adapter:
 ros2 launch prism_ros_driver prism.launch.py
 ```
 
-For Mid-360S:
+To enable and configure LiDAR at launch, copy the ROS 2 YAML, edit its
+`lidar_*` fields, and pass the copied file to the launch command:
 
 ```bash
-ros2 launch prism_ros_driver prism.launch.py lidar_model:=mid360s
+cp "$(ros2 pkg prefix prism_ros_driver)/share/prism_ros_driver/config/default.yaml" \
+  /tmp/prism-ros2.yaml
+ros2 launch prism_ros_driver prism.launch.py config:=/tmp/prism-ros2.yaml
 ```
 
 ## Configuration
@@ -388,15 +397,44 @@ Important parameters:
 | `board_imu_enabled` | `true` | Publish detected board IMUs |
 | `imu_sensor_count` | `0` | `0` uses detected count; normally one or two |
 | `imu_rate_hz` | `0` | `0` uses device configuration; production devices use 800 Hz |
-| `lidar_enabled` | `true` | Start and publish the configured Livox LiDAR |
+| `lidar_enabled` | `false` | Start and publish the configured Livox LiDAR |
 | `lidar_model` | `mid360` | Must be `mid360` or `mid360s` |
+| `lidar_network_apply_on_start` | `false` | Compare the YAML network settings with the device and persist them before streams start |
+| `lidar_network_enabled` | `true` | Saved RK LiDAR-interface enable state; separate from `lidar_enabled` |
+| `lidar_host_ip` | `192.168.1.5` | IPv4 address assigned to the RK `end0` interface |
+| `lidar_netmask` | `255.255.255.0` | Netmask for the RK-to-LiDAR link |
+| `lidar_ip` | `192.168.1.3` | IPv4 address of the connected LiDAR |
 | `require_synchronized_timestamps` | `true` | Drop samples that are not in the common RK time domain |
 | `topic_prefix` | `/prism` | Prefix for all data topics |
 
 `lidar_model` selects the SDK stream implementation when the adapter starts; it
 is not a persisted device setting and cannot be changed while the adapter is
-running. Pass `lidar_model:=mid360s` at launch for a Mid-360S, or use the
-default `mid360` for a Mid-360.
+running. Set it in the ROS 1 or ROS 2 YAML together with `lidar_enabled: true`.
+The launch files deliberately leave all `lidar_*` parameters to the YAML file
+instead of silently overriding them with launch-argument defaults.
+
+The network fields are also startup parameters, but they are read-only unless
+`lidar_network_apply_on_start` is `true`. When enabled, the adapter first reads
+the device configuration. It performs no write when the requested values
+already match a persisted configuration; otherwise it saves the complete
+network configuration before any stream starts. Invalid IPv4 values, a device
+rejection, or an unverified save aborts startup with an error. For example, the
+ROS 1 fields are:
+
+```yaml
+lidar_enabled: true
+lidar_model: "mid360s"
+lidar_network_apply_on_start: true
+lidar_network_enabled: true
+lidar_host_ip: "192.168.1.5"
+lidar_netmask: "255.255.255.0"
+lidar_ip: "192.168.1.3"
+```
+
+Put the same fields below `prism_ros_driver.ros__parameters` in the ROS 2 YAML.
+`lidar_network_enabled` controls the persisted RK LiDAR interface, while
+`lidar_enabled` controls whether this adapter process starts the LiDAR data
+stream. In normal operation, set both to `true`.
 
 LiDAR network settings can be managed through the ROS Adapter. The
 `/prism/lidar/set_network` service persists `enabled`, the RK `end0` address,
@@ -524,6 +562,8 @@ python3 scripts/verify_lidar_pointcloud_ros2.py
 
 ## Update notes
 
+- [Version 1.0.1](docs/update/v1.0.1.md)
+- [版本 1.0.1（中文）](docs/update/v1.0.1.zh-CN.md)
 - [Version 1.0.0](docs/update/v1.0.0.md)
 - [版本 1.0.0（中文）](docs/update/v1.0.0.zh-CN.md)
 

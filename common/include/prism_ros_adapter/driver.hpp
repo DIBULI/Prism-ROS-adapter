@@ -25,11 +25,16 @@ struct DriverConfig {
   std::string device_serial;
   bool enable_camera = true;
   bool enable_board_imu = true;
-  bool enable_lidar = true;
+  bool enable_lidar = false;
   uint32_t camera_fps = 0;
   uint32_t imu_sensor_count = 0;
   uint32_t imu_rate_hz = 0;
   LidarModel lidar_model = LidarModel::Mid360;
+  bool lidar_network_apply_on_start = false;
+  bool lidar_network_enabled = true;
+  std::string lidar_host_ip = "192.168.1.5";
+  std::string lidar_netmask = "255.255.255.0";
+  std::string lidar_ip = "192.168.1.3";
   bool require_synchronized_timestamps = true;
 };
 

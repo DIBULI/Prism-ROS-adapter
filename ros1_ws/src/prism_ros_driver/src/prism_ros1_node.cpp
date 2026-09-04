@@ -211,7 +211,7 @@ class PrismRos1Node {
     private_node_.param("device_serial", config.device_serial, std::string{});
     private_node_.param("camera_enabled", config.enable_camera, true);
     private_node_.param("board_imu_enabled", config.enable_board_imu, true);
-    private_node_.param("lidar_enabled", config.enable_lidar, true);
+    private_node_.param("lidar_enabled", config.enable_lidar, false);
     int camera_fps = 0;
     int imu_sensor_count = 0;
     int imu_rate_hz = 0;
@@ -233,6 +233,16 @@ class PrismRos1Node {
     } else {
       throw std::invalid_argument("~lidar_model must be mid360 or mid360s");
     }
+    private_node_.param("lidar_network_apply_on_start",
+                        config.lidar_network_apply_on_start, false);
+    private_node_.param("lidar_network_enabled",
+                        config.lidar_network_enabled, true);
+    private_node_.param("lidar_host_ip", config.lidar_host_ip,
+                        std::string("192.168.1.5"));
+    private_node_.param("lidar_netmask", config.lidar_netmask,
+                        std::string("255.255.255.0"));
+    private_node_.param("lidar_ip", config.lidar_ip,
+                        std::string("192.168.1.3"));
 
     private_node_.param("topic_prefix", topic_prefix_, std::string("/prism"));
     private_node_.param("camera_frame_prefix", camera_frame_prefix_,

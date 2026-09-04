@@ -72,6 +72,31 @@ std::string lidarModelName(LidarModel model) {
   return model == LidarModel::Mid360S ? "mid360s" : "mid360";
 }
 
+bool isValidIpv4(const std::string& value) {
+  if (value.empty()) return false;
+  size_t begin = 0;
+  for (size_t octet = 0; octet < 4; ++octet) {
+    const size_t end = value.find('.', begin);
+    if ((octet < 3 && end == std::string::npos) ||
+        (octet == 3 && end != std::string::npos)) {
+      return false;
+    }
+    const size_t length =
+        (end == std::string::npos ? value.size() : end) - begin;
+    if (length == 0 || length > 3) return false;
+    unsigned int number = 0;
+    for (size_t index = begin; index < begin + length; ++index) {
+      const unsigned char character =
+          static_cast<unsigned char>(value[index]);
+      if (!std::isdigit(character)) return false;
+      number = number * 10u + static_cast<unsigned int>(character - '0');
+    }
+    if (number > 255u) return false;
+    begin = end == std::string::npos ? value.size() : end + 1;
+  }
+  return begin == value.size();
+}
+
 DeviceState fromSdk(const prism::HelloInfo& hello,
                     const prism::DeviceVersions& versions,
                     const prism::DeviceInfo& info) {
@@ -453,6 +478,50 @@ struct Driver::Impl {
       context.lidar_stream->start(toSdkModel(config.lidar_model));
       context.lidar_started = true;
     }
+  }
+
+  void configureLidarNetworkOnStart(prism::Client& client) {
+    if (!config.lidar_network_apply_on_start) return;
+    if (!isValidIpv4(config.lidar_host_ip)) {
+      throw std::invalid_argument("lidar_host_ip is not a valid IPv4 address");
+    }
+    if (!isValidIpv4(config.lidar_netmask)) {
+      throw std::invalid_argument("lidar_netmask is not a valid IPv4 address");
+    }
+    if (!isValidIpv4(config.lidar_ip)) {
+      throw std::invalid_argument("lidar_ip is not a valid IPv4 address");
+    }
+
+    prism::LidarNetworkConfiguration requested;
+    requested.enabled = config.lidar_network_enabled;
+    requested.host_ip = config.lidar_host_ip;
+    requested.netmask = config.lidar_netmask;
+    requested.lidar_ip = config.lidar_ip;
+
+    const auto current = client.lidarNetworkStatus();
+    const auto matches = [&requested](const auto& configuration) {
+      return configuration.enabled == requested.enabled &&
+             configuration.host_ip == requested.host_ip &&
+             configuration.netmask == requested.netmask &&
+             configuration.lidar_ip == requested.lidar_ip;
+    };
+    if (current.persisted && matches(current.configuration)) {
+      log(LogLevel::Info,
+          "LiDAR startup network configuration already matches the device");
+      return;
+    }
+
+    const auto saved = client.saveLidarNetworkConfiguration(requested);
+    if (saved.error_code != 0) {
+      throw std::runtime_error(
+          "LiDAR startup network configuration failed" +
+          (saved.error.empty() ? std::string{} : ": " + saved.error));
+    }
+    if (!saved.persisted || !matches(saved.configuration)) {
+      throw std::runtime_error(
+          "LiDAR startup network configuration was not persisted");
+    }
+    log(LogLevel::Info, "LiDAR startup network configuration was updated");
   }
 
   template <typename Result, typename Function>
@@ -1037,6 +1106,7 @@ struct Driver::Impl {
     publishStatus("starting");
 
     try {
+      configureLidarNetworkOnStart(client);
       startConfiguredStreams(control_context);
       enableControls();
       publishStatus("streaming");

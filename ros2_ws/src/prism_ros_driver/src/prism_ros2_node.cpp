@@ -214,7 +214,7 @@ class PrismRos2Node : public rclcpp::Node {
     config.enable_camera = declare_parameter<bool>("camera_enabled", true);
     config.enable_board_imu =
         declare_parameter<bool>("board_imu_enabled", true);
-    config.enable_lidar = declare_parameter<bool>("lidar_enabled", true);
+    config.enable_lidar = declare_parameter<bool>("lidar_enabled", false);
     config.camera_fps = static_cast<uint32_t>(std::max<int64_t>(
         0, declare_parameter<int64_t>("camera_fps", 0)));
     config.imu_sensor_count = static_cast<uint32_t>(std::max<int64_t>(
@@ -232,6 +232,16 @@ class PrismRos2Node : public rclcpp::Node {
     } else {
       throw std::invalid_argument("lidar_model must be mid360 or mid360s");
     }
+    config.lidar_network_apply_on_start =
+        declare_parameter<bool>("lidar_network_apply_on_start", false);
+    config.lidar_network_enabled =
+        declare_parameter<bool>("lidar_network_enabled", true);
+    config.lidar_host_ip =
+        declare_parameter<std::string>("lidar_host_ip", "192.168.1.5");
+    config.lidar_netmask =
+        declare_parameter<std::string>("lidar_netmask", "255.255.255.0");
+    config.lidar_ip =
+        declare_parameter<std::string>("lidar_ip", "192.168.1.3");
 
     topic_prefix_ = declare_parameter<std::string>("topic_prefix", "/prism");
     camera_frame_prefix_ =

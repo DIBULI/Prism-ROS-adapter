@@ -12,20 +12,12 @@ def generate_launch_description():
     return LaunchDescription(
         [
             DeclareLaunchArgument("config", default_value=default_config),
-            DeclareLaunchArgument("lidar_enabled", default_value="true"),
-            DeclareLaunchArgument("lidar_model", default_value="mid360"),
             Node(
                 package="prism_ros_driver",
                 executable="prism_ros_driver_node",
                 name="prism_ros_driver",
                 output="screen",
-                parameters=[
-                    LaunchConfiguration("config"),
-                    {
-                        "lidar_enabled": LaunchConfiguration("lidar_enabled"),
-                        "lidar_model": LaunchConfiguration("lidar_model"),
-                    },
-                ],
+                parameters=[LaunchConfiguration("config")],
             ),
         ]
     )
