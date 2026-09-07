@@ -26,8 +26,8 @@ libstdc++ and glibc while building in the target ROS environment.
 
 ## Prism SDK Git submodule
 
-This repository pins Prism SDK `1.0.0` as the `third_party/Prism-SDK` Git
-submodule. It contains the Host SDK 1.0.0 runtime/ABI required by Agent 1.0.0.
+This repository pins Prism SDK `1.1.0` as the `third_party/Prism-SDK` Git
+submodule. It contains the Host SDK 1.1.0 runtime/ABI required by Agent 1.1.0.
 Clone recursively:
 
 ```bash
@@ -56,8 +56,8 @@ The supported binary mapping is:
 | x86-64 | All supported distributions | `runtime/ros/linux-x64` |
 | ARM64 | All supported distributions | `runtime/ros/linux-arm64` |
 
-Both platform payloads are part of the pinned Prism SDK `1.0.0` release and include
-the production Host SDK 1.0.0 runtime and `800 Hz` IMU update. The
+Both platform payloads are part of the pinned Prism SDK `1.1.0` release and include
+the production Host SDK 1.1.0 runtime and `800 Hz` IMU update. The
 build scripts detect x86-64 or ARM64 automatically;
 `PRISM_ROS_ARCH=arm64` can be used when building ARM64 through emulation on an
 x86-64 host. Verify the submodule and all ROS runtime prefixes with:
@@ -117,10 +117,10 @@ camera, IMU, or LiDAR stream reader.
 | `/prism/camera/set_target_brightness` | `prism_ros_msgs/SetTargetBrightness` | Set the shared automatic-exposure target brightness (1–255) |
 | `/prism/camera/set_exposure` | `prism_ros_msgs/SetCameraExposure` | Select automatic or manual exposure for one camera (index 0–3); manual mode accepts exposure in microseconds and gain in x1024 units |
 | `/prism/camera/set_exposure_limits` | `prism_ros_msgs/SetExposureLimits` | Set the runtime automatic-exposure time/gain limits shared by all cameras |
-| `/prism/system/sync_time` | `prism_ros_msgs/SyncSystemTime` | Make the host wall clock authoritative for the RK system and hardware clocks, then verify the result |
+| `/prism/system/sync_time` | `prism_ros_msgs/SyncSystemTime` | Explicit Host UTC request to Sensor Board master; reject when GNSS locked; verify RK alignment |
 | `/prism/device/get_info` | `prism_ros_msgs/GetDeviceInfo` | Read device identity, USB link, sensor-board health, detected sensors, and Host SDK/Agent/sensor-board versions |
-| `/prism/device/get_configuration` | `prism_ros_msgs/GetDeviceConfiguration` | Read the persisted Camera FPS, board-IMU rate, MJPEG quality, and configuration generation |
-| `/prism/device/set_configuration` | `prism_ros_msgs/SetDeviceConfiguration` | Persist any selected subset of Camera FPS, board-IMU rate, and MJPEG quality |
+| `/prism/device/get_configuration` | `prism_ros_msgs/GetDeviceConfiguration` | Read persisted Camera FPS, board-IMU rate, MJPEG quality, GNSS UART baud and generation |
+| `/prism/device/set_configuration` | `prism_ros_msgs/SetDeviceConfiguration` | Persist selected Camera FPS, board-IMU rate, MJPEG quality and GNSS UART baud |
 | `/prism/lidar/get_status` | `prism_ros_msgs/GetLidarStatus` | Read the live LiDAR model, connection/receive state, address, serial, packet/point counters, and errors |
 | `/prism/lidar/get_network` | `prism_ros_msgs/GetLidarNetwork` | Read the persisted LiDAR network configuration and current interface/link/subnet/reachability state |
 | `/prism/lidar/set_network` | `prism_ros_msgs/SetLidarNetwork` | Persist LiDAR enable, host IPv4, netmask, and LiDAR IPv4 settings |
@@ -147,7 +147,7 @@ Persistent device, LiDAR-network, and Wi-Fi service writes also require
 `lidar_network_apply_on_start: true` is the explicit authorization to compare
 and, when needed, persist the network fields from YAML.
 Device configuration currently accepts Camera FPS 1–30, board-IMU rate
-800 Hz, and MJPEG quality 1–99; unsupported values are rejected by the SDK.
+800 Hz, MJPEG quality 1–99, and the GNSS UART rates listed below; unsupported values are rejected.
 The request has one `set_*` selector per device field, so omitted fields remain
 unchanged. LiDAR network and Wi-Fi control commands require an idle USB session;
 the adapter pauses all active streams, performs the operation, and restores the
@@ -160,7 +160,7 @@ session, so every stream transition is implemented as one coordinated stop and
 restart; the final enabled/active state still follows the requested selection.
 Stopping all streams leaves the node and its services running.
 
-Firmware inspection or upgrade is intentionally not exposed as a ROS service.
+Firmware upgrade is intentionally not exposed as a ROS service; version queries remain available.
 
 ### Service request reference
 
@@ -266,10 +266,148 @@ board_imu: true
 lidar: true"
 ```
 
+
+## GNSS / CORS / RTK in v1.1.0
+
+Requires the pinned SDK **1.1.0** (Runtime API 12) and Agent **1.1.0**.
+Sensor-board firmware 0.4.26 is the validated baseline. Old Agent compatibility
+and firmware upgrade services are intentionally not provided.
+
+### Topics and rates
+
+| Topic under `/prism` | Type (ROS1 spelling) | Meaning |
+| --- | --- | --- |
+| `gnss/timing` | `prism_ros_msgs/GnssTimingStatus` | Live GPS fix, satellites, DOP, GGA coordinates/UTC, NMEA age, external synchronization and basic PPS status |
+| `gnss/fix` | `sensor_msgs/NavSatFix` | GPS latitude/longitude and **ellipsoidal altitude in metres** (MSL + geoid) |
+| `rtk/navigation` | `prism_ros_msgs/RtkNavigationStatus` | Separate raw/smoothed positions, epochs, ENU standard deviations in metres, solution/confidence, gating/reset counters |
+| `rtk/fix_raw`, `rtk/fix_smoothed` | `sensor_msgs/NavSatFix` | Separate raw/filtered positions; covariance diagonal is **E², N², U²** in m² |
+| `rtk/status` | `prism_ros_msgs/RtkCorrectionStatus` | CORS input format (unknown/RTCM2/RTCM3/unsupported), source, byte/decoder/solution counters |
+| `gnss/rover_rtcm` | `prism_ros_msgs/RtcmData` | Unmodified receiver RTCM3 observation/navigation frames, for offline algorithm replay |
+| `rtk/corrections` (**input**) | `prism_ros_msgs/RtcmData` | Raw base-station RTCM2.x or RTCM3 bytes from an external CORS/NTRIP client |
+
+GNSS/navigation snapshots are polled at a **target 10 Hz**; actual update rate is
+limited by device responses and sensor output. Repeated solution epochs are
+not new measurements. RTK correction counters are polled at 1 Hz (also updated
+after an accepted correction chunk); PPS itself is normally 1 Hz.
+Set `navigation_enabled: false` to disable periodic navigation queries.
+Set `rover_rtcm_enabled: true` to start raw rover output automatically, or use
+the service below. Both default configuration files document these parameters.
+A navigation/control-only session may set camera, board IMU and LiDAR all false.
+
+Navigation and RTCM publishers use reliable ROS2 QoS. Status queues have depth 10,
+rover output depth 1024; input correction queue depth 64. USB dispatch is bounded:
+rover messages expose Agent `dropped_bytes` and adapter `adapter_dropped_chunks`.
+Monitor them during recording and check input rejection logs / accepted-byte
+counters. These are not a guarantee against middleware or subscriber-side loss.
+
+`GnssTimingStatus.time_synced` is the live **external GNSS** lock, distinct from
+Sensor Board owning the internal sensor time domain. `pps_valid`, detected PPS,
+high width and minimum high width remain exposed. `message_pps_offset_us` is the
+delay of the **first valid RMC after each PPS**; it is usable only while
+`offset_fresh=true`, in the range 0..800000 us. `nmea_age_ms` is time since the
+latest accepted receiver report, not PPS/RMC latency. RK-PPS precision/quality
+diagnostics are intentionally not exposed.
+
+GPS `NavSatFix` stamps use GGA time-of-day and the synchronized device PPS date,
+including midnight rollover. Without a valid date, the stamp is zero (unknown);
+it is **not replaced with host wall time**. Fixes older than 2 seconds or without
+a valid position become STATUS_NO_FIX with NaN coordinates; detailed status
+retains age and raw fields so staleness remains visible. DOP is not misrepresented
+as metre covariance. RTK fix stamps are the respective raw/smoothed device UTC
+epochs, never the polling/arrival time. Invalid smoothed solutions do not silently
+fall back to raw solutions. NavSatFix does not distinguish FLOAT from FIX; use
+`rtk/navigation.solution` and `smoothed_solution` (3=FLOAT, 4=FIX).
+The SDK does not expose a constellation bitmask, so NavSatFix `service` is 0.
+
+### New services
+
+ROS2 uses `prism_ros_msgs/srv/...`; ROS1 uses `prism_ros_msgs/...`.
+All return `success`, `message` and a typed `status`.
+
+| Service | Type | Request |
+| --- | --- | --- |
+| `/prism/gnss/get_timing` | `GetGnssTiming` | none |
+| `/prism/rtk/get_status` | `GetRtkStatus` | none |
+| `/prism/rtk/get_navigation` | `GetRtkNavigation` | none |
+| `/prism/system/get_timesync_port` | `GetTimeSyncPort` | none; mode 0 = Sensor Board master; retired output/passthrough mode is not offered |
+| `/prism/rtk/control_corrections` | `ControlRtkCorrections` | `enable: true/false`; acquire/release this node's Host correction input |
+| `/prism/gnss/set_rover_rtcm` | `SetRoverRtcm` | `enable: true/false`; independent raw receiver output |
+
+`/prism/device/set_configuration` additionally supports
+`set_gnss_uart_baud` + `gnss_uart_baud`. Supported rates:
+4800, 9600, 19200, 38400, 57600, 115200, 230400, **460800 (default)**, 921600.
+GNSS-only changes apply live without pausing capture; other configuration
+changes retain the existing pause/save/resume behavior. Match the receiver's
+output baud before changing this setting.
+
+```bash
+# ROS2: read current state (no clock changes)
+ros2 service call /prism/gnss/get_timing prism_ros_msgs/srv/GetGnssTiming '{}'
+ros2 service call /prism/rtk/get_navigation prism_ros_msgs/srv/GetRtkNavigation '{}'
+ros2 service call /prism/rtk/get_status prism_ros_msgs/srv/GetRtkStatus '{}'
+ros2 service call /prism/system/get_timesync_port prism_ros_msgs/srv/GetTimeSyncPort '{}'
+
+# Explicit persistent GNSS configuration
+ros2 service call /prism/device/set_configuration prism_ros_msgs/srv/SetDeviceConfiguration \
+  '{confirm: true, set_gnss_uart_baud: true, gnss_uart_baud: 460800}'
+
+# Enable forwarding, then let your NTRIP client publish raw bytes
+ros2 service call /prism/rtk/control_corrections prism_ros_msgs/srv/ControlRtkCorrections '{enable: true}'
+ros2 service call /prism/gnss/set_rover_rtcm prism_ros_msgs/srv/SetRoverRtcm '{enable: true}'
+
+# Record raw rover + base input for offline RTKLIB analysis
+ros2 bag record /prism/gnss/rover_rtcm /prism/rtk/corrections \
+  /prism/gnss/timing /prism/rtk/navigation /prism/rtk/status
+
+# Release when finished
+ros2 service call /prism/gnss/set_rover_rtcm prism_ros_msgs/srv/SetRoverRtcm '{enable: false}'
+ros2 service call /prism/rtk/control_corrections prism_ros_msgs/srv/ControlRtkCorrections '{enable: false}'
+```
+
+ROS1 equivalents:
+
+```bash
+rosservice call /prism/gnss/get_timing "{}"
+rosservice call /prism/rtk/get_navigation "{}"
+rosservice call /prism/rtk/get_status "{}"
+rosservice call /prism/system/get_timesync_port "{}"
+rosservice call /prism/device/set_configuration \
+  "confirm: true
+set_gnss_uart_baud: true
+gnss_uart_baud: 460800"
+rosservice call /prism/rtk/control_corrections "enable: true"
+rosservice call /prism/gnss/set_rover_rtcm "enable: true"
+rosbag record /prism/gnss/rover_rtcm /prism/rtk/corrections \
+  /prism/gnss/timing /prism/rtk/navigation /prism/rtk/status
+rosservice call /prism/gnss/set_rover_rtcm "enable: false"
+rosservice call /prism/rtk/control_corrections "enable: false"
+```
+
+The SDK/adapter does **not** log in to CORS. Your external client handles caster,
+credentials and mountpoint, and builds periodic NTRIP GGA from `gnss/timing`
+(latitude/longitude, fix quality, satellites, HDOP, MSL altitude, geoid, UTC).
+Do not send stale/invalid positions as current GGA. Publish each raw correction
+chunk into `RtcmData.data` with 1..16384 bytes, preserving order; NTRIP/HTTP
+headers must be stripped. The correction input ignores Header/metadata.
+RTCM2.x and RTCM3 are decoded by Agent; other formats are not supported.
+Corrections feed the RK RTK solver, **not the UM960 or Sensor Board**.
+
+Rover `RtcmData.header.stamp` is explicitly **host receipt time**: the SDK
+raw-byte event has no sensor timestamp. GNSS observation epochs are inside RTCM.
+`data` bytes are preserved, with sequence/flags/drop counts from Agent.
+For offline RTKLIB replay, extract/concatenate rover and base bytes **separately**;
+do not replay rover observations into `rtk/corrections`, which is a base input.
+
+No automatic time synchronization occurs on connection. `system/sync_time`
+requires explicit confirmation and sends Host UTC through Agent to the **Sensor
+Board master**, then verifies RK alignment. When live GNSS is synchronized it
+fails before pausing capture; Agent checks again to protect against a lock race.
+An RTC is not required.
+
 ## Prerequisites
 
 1. Prism Agent and Host USB SDK runtime must have exactly the same version.
-   This adapter pins Prism SDK `1.0.0` and therefore requires Agent `1.0.0`.
+   This adapter pins Prism SDK `1.1.0` and therefore requires Agent `1.1.0`.
 2. Select the SDK submodule runtime prefix for the host using the table above and
    install that complete binary prefix under `/opt/prism-sdk`. For example,
    on x86-64:
@@ -585,3 +723,31 @@ compatibility, package installation, message interfaces, launch descriptions
 and dynamic-library resolution. Camera, IMU and LiDAR streaming tests remain a
 separate hardware qualification step on a controlled machine with the device
 attached.
+## v1.1.0 validation
+
+[Linux validation report](docs/testing/v1.1.0-linux-20260907.md) records tested environments and hardware limitations.
+
+On a configured ROS2 Linux host, source ROS and the built workspace, then run:
+
+```bash
+python3 scripts/verify_navigation_ros2.py  # serialization only, no USB
+python3 scripts/verify_navigation_ros2.py --device --seconds 15
+# Optional short camera/IMU regression; counts in memory, no dataset writes:
+python3 scripts/verify_navigation_ros2.py --device --capture --camera-fps 30 --seconds 20
+```
+
+Hardware mode starts its own navigation-only driver. Stop other Prism USB
+clients first. It queries versions/GNSS/RTK/configuration, checks no-op rejection
+paths, briefly enables/disables correction input without sending data, and enables
+raw rover output. On completion it stops its temporary streams and process.
+It does not synchronize clocks, write persisted settings, or upgrade firmware.
+A receiver producing fresh GNSS/RTCM is needed to verify real rover bytes;
+absence of bytes is reported explicitly, not counted as a successful data test.
+For live receiver positions and RTK FIX/FLOAT, validate again with active GNSS
+and a current base correction stream.
+
+Docker builds use Tsinghua Ubuntu/ROS APT mirrors while preserving keys and
+signature checks. The immutable upstream Noetic final snapshot, where configured
+by the base image, remains upstream because it is a separate archive.
+Mirror references: [Ubuntu](https://mirrors.tuna.tsinghua.edu.cn/help/ubuntu/),
+[ROS2](https://mirrors.tuna.tsinghua.edu.cn/help/ros2/).
