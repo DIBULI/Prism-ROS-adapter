@@ -2,6 +2,8 @@ prism_ros_driver:
   ros__parameters:
     device_serial: ""
     topic_prefix: "/prism"
+    navigation_enabled: true
+    rover_rtcm_enabled: false
     camera_enabled: true
     camera_fps: 0
     board_imu_enabled: true

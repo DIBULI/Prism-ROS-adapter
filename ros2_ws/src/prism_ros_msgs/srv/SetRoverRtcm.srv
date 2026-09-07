@@ -1,0 +1,6 @@
+# Enable receiver RTCM3 output independently of camera/IMU/LiDAR.
+bool enable
+---
+bool success
+string message
+RoverRtcmStatus status

@@ -6,6 +6,18 @@ find_package(rosidl_default_generators REQUIRED)
 find_package(std_msgs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/GnssTimingStatus.msg"
+  "msg/RtkCorrectionStatus.msg"
+  "msg/RtkNavigationStatus.msg"
+  "msg/TimeSyncPortStatus.msg"
+  "msg/RoverRtcmStatus.msg"
+  "msg/RtcmData.msg"
+  "srv/GetGnssTiming.srv"
+  "srv/GetRtkStatus.srv"
+  "srv/GetRtkNavigation.srv"
+  "srv/GetTimeSyncPort.srv"
+  "srv/ControlRtkCorrections.srv"
+  "srv/SetRoverRtcm.srv"
   "msg/CameraFrameMetadata.msg"
   "msg/DeviceConfiguration.msg"
   "msg/DeviceInfo.msg"

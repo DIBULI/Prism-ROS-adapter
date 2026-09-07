@@ -1,5 +1,7 @@
 #pragma once
 
+#include "prism_ros_adapter/navigation.hpp"
+
 #include <array>
 #include <atomic>
 #include <cstdint>
@@ -23,6 +25,8 @@ enum class LogLevel {
 
 struct DriverConfig {
   std::string device_serial;
+  bool enable_navigation = true;
+  bool enable_rover_rtcm = false;
   bool enable_camera = true;
   bool enable_board_imu = true;
   bool enable_lidar = false;
@@ -107,6 +111,7 @@ struct DeviceConfigurationState {
   uint32_t camera_fps = 0;
   uint32_t imu_rate_hz = 0;
   uint32_t mjpeg_quality = 0;
+  uint32_t gnss_uart_baud = 460800;
   uint32_t generation = 0;
   bool persisted = false;
 };
@@ -244,6 +249,10 @@ struct DriverStatus {
 };
 
 struct DriverCallbacks {
+  std::function<void(const GnssTimingStatusState&)> gnss;
+  std::function<void(const RtkNavigationStatusState&)> rtk_navigation;
+  std::function<void(const RtkCorrectionStatusState&)> rtk_status;
+  std::function<void(const RtcmData&)> rover_rtcm;
   std::function<void(const CameraFrameSet&)> camera;
   std::function<void(const BoardImuSample&)> board_imu;
   std::function<void(const LidarPointBatch&)> lidar_points;
@@ -275,11 +284,19 @@ class Driver {
                                         uint32_t min_gain_x1024,
                                         uint32_t max_gain_x1024);
   SystemTimeSyncState synchronizeSystemTime();
+  GnssTimingStatusState getGnssTiming();
+  RtkNavigationStatusState getRtkNavigation();
+  RtkCorrectionStatusState getRtkStatus();
+  TimeSyncPortStatusState getTimeSyncPort();
+  RtkCorrectionStatusState controlRtkCorrections(bool enable);
+  RtkCorrectionStatusState sendRtkCorrections(std::vector<uint8_t> data);
+  RoverRtcmStatusState setRoverRtcm(bool enable);
   DeviceState getDeviceInfo();
   DeviceConfigurationState getDeviceConfiguration();
   DeviceConfigurationState setDeviceConfiguration(
       bool set_camera_fps, uint32_t camera_fps, bool set_imu_rate_hz,
-      uint32_t imu_rate_hz, bool set_mjpeg_quality, uint32_t mjpeg_quality);
+      uint32_t imu_rate_hz, bool set_mjpeg_quality, uint32_t mjpeg_quality,
+      bool set_gnss_uart_baud, uint32_t gnss_uart_baud);
   LidarStatusState getLidarStatus();
   LidarNetworkState getLidarNetwork();
   LidarNetworkState setLidarNetwork(bool enabled, std::string host_ip,

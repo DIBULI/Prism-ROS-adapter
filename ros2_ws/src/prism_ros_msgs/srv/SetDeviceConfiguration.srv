@@ -5,6 +5,8 @@ bool set_imu_rate_hz
 uint32 imu_rate_hz
 bool set_mjpeg_quality
 uint32 mjpeg_quality
+bool set_gnss_uart_baud
+uint32 gnss_uart_baud
 ---
 bool success
 string message

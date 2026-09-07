@@ -1,4 +1,5 @@
 #include "prism_ros_adapter/driver.hpp"
+#include "prism_ros_adapter/navigation_conversion.hpp"
 #include "prism_ros_adapter/device_time_resolver.hpp"
 #include "prism_ros_adapter/lidar_frame_accumulator.hpp"
 
@@ -136,11 +137,42 @@ DeviceState fromSdk(const prism::HelloInfo& hello,
   return output;
 }
 
+GnssTimingStatusState fromSdk(const prism::GnssTimingStatus& value) {
+  GnssTimingStatusState output;
+  copyGnssTimingStatus(output, value);
+  return output;
+}
+
+RtkCorrectionStatusState fromSdk(const prism::RtkCorrectionStatus& value) {
+  RtkCorrectionStatusState output;
+  copyRtkCorrectionStatus(output, value);
+  return output;
+}
+
+RtkNavigationStatusState fromSdk(const prism::RtkNavigationStatus& value) {
+  RtkNavigationStatusState output;
+  copyRtkNavigationStatus(output, value);
+  return output;
+}
+
+TimeSyncPortStatusState fromSdk(const prism::TimeSyncPortStatus& value) {
+  TimeSyncPortStatusState output;
+  copyTimeSyncPortStatus(output, value);
+  return output;
+}
+
+RoverRtcmStatusState fromSdk(const prism::RoverRtcmStatus& value) {
+  RoverRtcmStatusState output;
+  copyRoverRtcmStatus(output, value);
+  return output;
+}
+
 DeviceConfigurationState fromSdk(const prism::DeviceConfiguration& value) {
   DeviceConfigurationState output;
   output.camera_fps = value.camera_fps;
   output.imu_rate_hz = value.imu_rate_hz;
   output.mjpeg_quality = value.mjpeg_quality;
+  output.gnss_uart_baud = value.gnss_uart_baud;
   output.generation = value.generation;
   output.persisted = value.persisted;
   return output;
@@ -350,6 +382,10 @@ struct Driver::Impl {
   Impl(DriverConfig config_in, DriverCallbacks callbacks_in)
       : config(std::move(config_in)),
         callbacks(std::move(callbacks_in)),
+        gnss_dispatch(1, callbacks.gnss),
+        navigation_dispatch(1, callbacks.rtk_navigation),
+        rtk_status_dispatch(1, callbacks.rtk_status),
+        rover_dispatch(1024, callbacks.rover_rtcm),
         camera_dispatch(2, callbacks.camera),
         board_imu_dispatch(8192, callbacks.board_imu),
         lidar_dispatch(16, callbacks.lidar_points),
@@ -381,6 +417,9 @@ struct Driver::Impl {
       if (!accepting_controls) {
         throw std::runtime_error(
             "Prism driver is not currently accepting service commands");
+      }
+      if (control_commands.size() >= 64) {
+        throw std::runtime_error("Prism control queue is full");
       }
       control_commands.push_back(std::move(command));
     }
@@ -469,6 +508,10 @@ struct Driver::Impl {
     }
 
     establishDeviceTimeReference(context.client, context.imu_stream.get());
+    if (config.enable_rover_rtcm && !rover_started) {
+      rover_started = context.client.startRoverRtcm().enabled;
+      if (!rover_started) throw std::runtime_error("rover RTCM start rejected");
+    }
 
     if (config.enable_lidar && !context.lidar_started) {
       if (!context.lidar_stream) {
@@ -578,6 +621,10 @@ struct Driver::Impl {
   }
 
   void stopConfiguredStreams(ControlContext& context) {
+    if (rover_started) {
+      context.client.stopRoverRtcm();
+      rover_started = false;
+    }
     if (context.lidar_started && context.lidar_stream) {
       context.lidar_stream->stop();
       context.lidar_started = false;
@@ -627,6 +674,12 @@ struct Driver::Impl {
   }
 
   SystemTimeSyncState synchronizeSystemTime(ControlContext& context) {
+    // Fail before pausing acquisition. Agent performs the authoritative check
+    // again when the request reaches it (GNSS can lock between these calls).
+    if (context.client.gnssTimingStatus().time_synced) {
+      throw std::runtime_error(
+          "external GNSS time is synchronized; host time sync is forbidden");
+    }
     publishStatus("synchronizing_time");
     try {
       stopConfiguredStreams(context);
@@ -758,6 +811,10 @@ struct Driver::Impl {
   }
 
   void startDispatchers() {
+    gnss_dispatch.start();
+    navigation_dispatch.start();
+    rtk_status_dispatch.start();
+    rover_dispatch.start();
     camera_dispatch.start();
     board_imu_dispatch.start();
     lidar_dispatch.start();
@@ -765,6 +822,10 @@ struct Driver::Impl {
   }
 
   void stopDispatchers() {
+    gnss_dispatch.stop();
+    navigation_dispatch.stop();
+    rtk_status_dispatch.stop();
+    rover_dispatch.stop();
     lidar_imu_dispatch.stop();
     lidar_dispatch.stop();
     board_imu_dispatch.stop();
@@ -1045,10 +1106,8 @@ struct Driver::Impl {
   }
 
   void run(const std::function<bool()>& keep_running) {
-    if (!config.enable_camera && !config.enable_board_imu &&
-        !config.enable_lidar) {
-      throw std::invalid_argument("at least one Prism stream must be enabled");
-    }
+    // A navigation-only/control-only session is valid; never start cameras
+    // just to query GNSS, feed CORS, or record rover observations.
 
     stop_requested.store(false);
     fatal_control_error.clear();
@@ -1109,17 +1168,31 @@ struct Driver::Impl {
       configureLidarNetworkOnStart(client);
       startConfiguredStreams(control_context);
       enableControls();
-      publishStatus("streaming");
+      publishStatus(streamStateText(control_context));
       auto next_status = std::chrono::steady_clock::now();
-      uint32_t consecutive_timeouts = 0;
+      auto next_navigation = std::chrono::steady_clock::now();
+      auto last_frame_received = std::chrono::steady_clock::now();
       while (!stop_requested.load() && keep_running()) {
         processControls(control_context);
         if (!fatal_control_error.empty()) {
           throw std::runtime_error(fatal_control_error);
         }
         try {
-          auto frame = client.readFrame(1000);
-          consecutive_timeouts = 0;
+          auto frame = client.readFrame(20);
+          last_frame_received = std::chrono::steady_clock::now();
+          if (frame.type == prism::FrameType::RoverRtcm && rover_started) {
+            const auto chunk = prism::parseRoverRtcmChunkView(frame);
+            RtcmData data;
+            data.host_received_ns = static_cast<uint64_t>(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    std::chrono::system_clock::now().time_since_epoch()).count());
+            data.sequence = chunk.sequence;
+            data.flags = chunk.flags;
+            data.dropped_bytes = chunk.dropped_bytes;
+            data.adapter_dropped_chunks = rover_dispatch.dropped();
+            data.data.assign(chunk.data, chunk.data + chunk.data_size);
+            rover_dispatch.push(std::move(data));
+          }
           bool handled = false;
           if (imu_stream) handled = imu_stream->handleFrame(frame) || handled;
           if (lidar_stream) {
@@ -1132,15 +1205,34 @@ struct Driver::Impl {
           }
         } catch (const std::exception& error) {
           if (!isTimeout(error)) throw;
-          if (!video_started && !imu_started && !lidar_started) {
-            consecutive_timeouts = 0;
-          } else if (++consecutive_timeouts >= 10u) {
+          if ((video_started || imu_started || lidar_started) &&
+              std::chrono::steady_clock::now() - last_frame_received >=
+                  std::chrono::seconds(10)) {
             throw;
           }
         }
 
         const auto now = std::chrono::steady_clock::now();
+        // All SDK I/O stays on this thread; queries buffer stream frames in
+        // the SDK, so ROS callbacks never race USB reads.
+        if (config.enable_navigation && now >= next_navigation) {
+          try {
+            gnss_dispatch.push(fromSdk(client.gnssTimingStatus()));
+            navigation_dispatch.push(fromSdk(client.rtkNavigationStatus()));
+          } catch (const std::exception& error) {
+            // No stale-success publication. Diagnostics show query failure.
+            if (now >= next_status) log(LogLevel::Warning,
+                std::string("navigation poll failed: ") + error.what());
+          }
+          next_navigation = now + std::chrono::milliseconds(100);
+        }
         if (now >= next_status) {
+          if (config.enable_navigation) {
+            try { rtk_status_dispatch.push(fromSdk(client.rtkCorrectionStatus())); }
+            catch (const std::exception& error) {
+              log(LogLevel::Warning, std::string("RTK status failed: ") + error.what());
+            }
+          }
           publishStatus(streamStateText(control_context));
           next_status = now + std::chrono::seconds(1);
         }
@@ -1166,7 +1258,15 @@ struct Driver::Impl {
 
   void cleanup(prism::Client& client, prism::LidarStream* lidar_stream,
                prism::ImuStream* imu_stream, bool lidar_started,
-               bool imu_started, bool video_started) const noexcept {
+               bool imu_started, bool video_started) noexcept {
+    try {
+      if (rover_started) client.stopRoverRtcm();
+    } catch (...) {}
+    rover_started = false;
+    try {
+      if (host_corrections_owned) client.endRtkCorrections();
+    } catch (...) {}
+    host_corrections_owned = false;
     try {
       if (lidar_started && lidar_stream != nullptr) lidar_stream->stop();
     } catch (...) {
@@ -1187,6 +1287,12 @@ struct Driver::Impl {
 
   DriverConfig config;
   DriverCallbacks callbacks;
+  bool rover_started = false;
+  bool host_corrections_owned = false;
+  DispatchQueue<GnssTimingStatusState> gnss_dispatch;
+  DispatchQueue<RtkNavigationStatusState> navigation_dispatch;
+  DispatchQueue<RtkCorrectionStatusState> rtk_status_dispatch;
+  DispatchQueue<RtcmData> rover_dispatch;
   DispatchQueue<CameraFrameSet> camera_dispatch;
   DispatchQueue<BoardImuSample> board_imu_dispatch;
   DispatchQueue<LidarPointBatch> lidar_dispatch;
@@ -1296,6 +1402,71 @@ ExposureLimitsState Driver::setExposureLimits(uint32_t min_exposure_time_us,
       });
 }
 
+
+GnssTimingStatusState Driver::getGnssTiming() {
+  return impl_->invokeControl<GnssTimingStatusState>([](auto& context) {
+    return fromSdk(context.client.gnssTimingStatus());
+  });
+}
+
+RtkNavigationStatusState Driver::getRtkNavigation() {
+  return impl_->invokeControl<RtkNavigationStatusState>([](auto& context) {
+    return fromSdk(context.client.rtkNavigationStatus());
+  });
+}
+
+RtkCorrectionStatusState Driver::getRtkStatus() {
+  return impl_->invokeControl<RtkCorrectionStatusState>([](auto& context) {
+    return fromSdk(context.client.rtkCorrectionStatus());
+  });
+}
+
+TimeSyncPortStatusState Driver::getTimeSyncPort() {
+  return impl_->invokeControl<TimeSyncPortStatusState>([](auto& context) {
+    return fromSdk(context.client.timeSyncPortStatus());
+  });
+}
+
+RtkCorrectionStatusState Driver::controlRtkCorrections(bool enable) {
+  return impl_->invokeControl<RtkCorrectionStatusState>([this, enable](auto& context) {
+    if (!enable && !impl_->host_corrections_owned)
+      throw std::runtime_error("this node does not own the Host correction input");
+    const auto status = enable ? context.client.beginRtkCorrections()
+                               : context.client.endRtkCorrections();
+    impl_->host_corrections_owned = status.host_active;
+    if (status.error_code != 0 || status.host_active != enable)
+      throw std::runtime_error("Agent rejected RTK correction control");
+    return fromSdk(status);
+  });
+}
+
+RtkCorrectionStatusState Driver::sendRtkCorrections(std::vector<uint8_t> data) {
+  if (data.empty() || data.size() > prism::kRtkCorrectionMaxChunk)
+    throw std::invalid_argument("RTCM chunk must contain 1..16384 bytes");
+  return impl_->invokeControl<RtkCorrectionStatusState>(
+      [this, data = std::move(data)](auto& context) {
+        if (!impl_->host_corrections_owned)
+          throw std::runtime_error("call rtk/control_corrections enable=true first");
+        const auto status = context.client.sendRtkCorrections(data);
+        if (status.error_code != 0 || !status.host_active ||
+            status.correction_format == prism::RtkCorrectionFormat::Unsupported)
+          throw std::runtime_error("Agent rejected RTCM correction data (RTCM2.x/RTCM3 only)");
+        return fromSdk(status);
+      });
+}
+
+RoverRtcmStatusState Driver::setRoverRtcm(bool enable) {
+  return impl_->invokeControl<RoverRtcmStatusState>([this, enable](auto& context) {
+    const auto status = enable ? context.client.startRoverRtcm()
+                               : context.client.stopRoverRtcm();
+    impl_->rover_started = status.enabled;
+    impl_->config.enable_rover_rtcm = status.enabled;
+    if (status.enabled != enable)
+      throw std::runtime_error("Agent rejected rover RTCM control");
+    return fromSdk(status);
+  });
+}
+
 SystemTimeSyncState Driver::synchronizeSystemTime() {
   return impl_->invokeControl<SystemTimeSyncState>(
       [this](auto& context) { return impl_->synchronizeSystemTime(context); });
@@ -1322,36 +1493,36 @@ DeviceConfigurationState Driver::getDeviceConfiguration() {
 
 DeviceConfigurationState Driver::setDeviceConfiguration(
     bool set_camera_fps, uint32_t camera_fps, bool set_imu_rate_hz,
-    uint32_t imu_rate_hz, bool set_mjpeg_quality, uint32_t mjpeg_quality) {
+    uint32_t imu_rate_hz, bool set_mjpeg_quality, uint32_t mjpeg_quality,
+    bool set_gnss_uart_baud, uint32_t gnss_uart_baud) {
   uint32_t field_mask = 0;
   if (set_camera_fps) field_mask |= prism::kDeviceConfigFieldCameraFps;
   if (set_imu_rate_hz) field_mask |= prism::kDeviceConfigFieldImuRateHz;
   if (set_mjpeg_quality) field_mask |= prism::kDeviceConfigFieldMjpegQuality;
-  if (field_mask == 0) {
-    throw std::invalid_argument("select at least one configuration field");
+  if (set_gnss_uart_baud) {
+    if (!prism::isGnssUartBaudSupported(gnss_uart_baud))
+      throw std::invalid_argument("unsupported GNSS UART baud");
+    field_mask |= prism::kDeviceConfigFieldGnssUartBaud;
   }
+  if (field_mask == 0)
+    throw std::invalid_argument("select at least one configuration field");
   return impl_->invokeControl<DeviceConfigurationState>(
-      [this, set_camera_fps, camera_fps, set_imu_rate_hz, imu_rate_hz,
-       set_mjpeg_quality, mjpeg_quality, field_mask](auto& context) {
+      [=](auto& context) {
+        auto save = [=](prism::Client& client) {
+          auto configuration = client.deviceConfiguration();
+          if (set_camera_fps) configuration.camera_fps = camera_fps;
+          if (set_imu_rate_hz) configuration.imu_rate_hz = imu_rate_hz;
+          if (set_mjpeg_quality) configuration.mjpeg_quality = mjpeg_quality;
+          if (set_gnss_uart_baud) configuration.gnss_uart_baud = gnss_uart_baud;
+          const auto saved = client.saveDeviceConfiguration(configuration, field_mask);
+          if (set_camera_fps) impl_->config.camera_fps = saved.camera_fps;
+          if (set_imu_rate_hz) impl_->config.imu_rate_hz = saved.imu_rate_hz;
+          return fromSdk(saved);
+        };
+        if (field_mask == prism::kDeviceConfigFieldGnssUartBaud)
+          return save(context.client);
         return impl_->runIdleOperation<DeviceConfigurationState>(
-            context, "saving_device_configuration",
-            [this, set_camera_fps, camera_fps, set_imu_rate_hz, imu_rate_hz,
-             set_mjpeg_quality, mjpeg_quality,
-             field_mask](prism::Client& client) {
-              auto configuration = client.deviceConfiguration();
-              if (set_camera_fps) configuration.camera_fps = camera_fps;
-              if (set_imu_rate_hz) configuration.imu_rate_hz = imu_rate_hz;
-              if (set_mjpeg_quality) {
-                configuration.mjpeg_quality = mjpeg_quality;
-              }
-              const auto saved =
-                  client.saveDeviceConfiguration(configuration, field_mask);
-              if (set_camera_fps) impl_->config.camera_fps = saved.camera_fps;
-              if (set_imu_rate_hz) {
-                impl_->config.imu_rate_hz = saved.imu_rate_hz;
-              }
-              return fromSdk(saved);
-            });
+            context, "saving_device_configuration", save);
       });
 }
 

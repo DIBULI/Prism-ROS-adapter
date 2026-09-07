@@ -4,6 +4,20 @@ project(prism_ros_adapter_common LANGUAGES CXX)
 include(CTest)
 
 if(BUILD_TESTING)
+  add_executable(prism-navigation-test common/tests/navigation_test.cpp)
+  target_compile_features(prism-navigation-test PRIVATE cxx_std_17)
+  target_include_directories(prism-navigation-test PRIVATE common/include)
+  if(NOT MSVC)
+    target_compile_options(prism-navigation-test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME navigation COMMAND prism-navigation-test)
+  add_test(NAME ros-message-parity COMMAND diff -ru
+    ${CMAKE_CURRENT_SOURCE_DIR}/ros1_ws/src/prism_ros_msgs/msg
+    ${CMAKE_CURRENT_SOURCE_DIR}/ros2_ws/src/prism_ros_msgs/msg)
+  add_test(NAME ros-service-parity COMMAND diff -ru
+    ${CMAKE_CURRENT_SOURCE_DIR}/ros1_ws/src/prism_ros_msgs/srv
+    ${CMAKE_CURRENT_SOURCE_DIR}/ros2_ws/src/prism_ros_msgs/srv)
+
   add_executable(prism-device-time-resolver-test
     common/tests/device_time_resolver_test.cpp)
   target_compile_features(prism-device-time-resolver-test PRIVATE cxx_std_17)

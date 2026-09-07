@@ -1,0 +1,27 @@
+uint16 FORMAT_UNKNOWN=0
+uint16 FORMAT_RTCM2=1
+uint16 FORMAT_RTCM3=2
+uint16 FORMAT_UNSUPPORTED=3
+# base_source: 0 none, 1 host CORS, 2 local socket, 3 Agent NTRIP.
+uint16 version
+uint32 flags
+int32 error_code
+bool running
+bool rover_connected
+bool base_connected
+bool host_active
+bool base_position_valid
+bool ntrip_configured
+bool ntrip_connected
+uint16 base_source
+uint16 correction_format
+uint16 solution
+uint64 host_correction_bytes
+uint64 rover_bytes
+uint64 base_bytes
+uint64 base_rtcm_messages
+uint64 base_observation_epochs
+uint64 solution_count
+uint64 fix_count
+uint64 float_count
+uint64 decoder_errors
