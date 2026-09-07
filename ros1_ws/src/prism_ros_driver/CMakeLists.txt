@@ -8,7 +8,8 @@ find_package(catkin REQUIRED COMPONENTS
   sensor_msgs
   std_msgs
 )
-find_package(PrismUsbSdk 1.0.0 EXACT CONFIG REQUIRED)
+find_package(PrismUsbSdk 1.1.0 EXACT CONFIG REQUIRED)
+find_package(Threads REQUIRED)
 
 catkin_package(CATKIN_DEPENDS
   diagnostic_msgs prism_ros_msgs roscpp sensor_msgs std_msgs)
@@ -25,7 +26,7 @@ target_include_directories(prism_ros_driver_node PRIVATE
 )
 target_link_libraries(prism_ros_driver_node
   ${catkin_LIBRARIES}
-  Prism::UsbSdk
+  Prism::UsbSdk Threads::Threads
 )
 add_dependencies(prism_ros_driver_node
   ${catkin_EXPORTED_TARGETS}

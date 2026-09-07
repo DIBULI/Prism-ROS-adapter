@@ -42,7 +42,8 @@ if(NOT PrismUsbSdk_DIR)
     endif()
   endif()
 endif()
-find_package(PrismUsbSdk 1.0.0 EXACT CONFIG REQUIRED)
+find_package(PrismUsbSdk 1.1.0 EXACT CONFIG REQUIRED)
+find_package(Threads REQUIRED)
 
 add_executable(prism_ros_driver_node
   src/prism_ros2_node.cpp
@@ -57,7 +58,7 @@ if(COMMAND ament_target_dependencies)
   # Humble/Jazzy keep the compatibility helper. Kilted deprecates it.
   ament_target_dependencies(prism_ros_driver_node
     diagnostic_msgs prism_ros_msgs rclcpp sensor_msgs std_msgs)
-  target_link_libraries(prism_ros_driver_node Prism::UsbSdk)
+  target_link_libraries(prism_ros_driver_node Prism::UsbSdk Threads::Threads)
 else()
   # Lyrical and newer use only modern imported CMake targets.
   target_link_libraries(prism_ros_driver_node
@@ -67,7 +68,7 @@ else()
     ${std_msgs_TARGETS}
     rclcpp::rclcpp
     sensor_msgs::sensor_msgs_library
-    Prism::UsbSdk
+    Prism::UsbSdk Threads::Threads
   )
 endif()
 if(NOT MSVC)

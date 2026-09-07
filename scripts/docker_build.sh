@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SDK_RUNTIME_VERSION="1.0.0"
+SDK_RUNTIME_VERSION="1.1.0"
 SDK_REPOSITORY_ROOT="${PRISM_USB_SDK_ROOT:-${ROOT_DIR}/third_party/Prism-SDK}"
 SDK_PREFIX_ROOT="${SDK_REPOSITORY_ROOT}/runtime/ros"
 SDK_PREFIX_OVERRIDE="${PRISM_USB_SDK_PREFIX:-}"
@@ -55,6 +55,10 @@ validate_sdk_root() {
     "include/prism/usb/common.hpp"
     "include/prism/usb/configuration.hpp"
     "include/prism/usb/device_info.hpp"
+    "include/prism/usb/gnss_timing.hpp"
+    "include/prism/usb/rtk.hpp"
+    "include/prism/usb/rtk_navigation.hpp"
+    "include/prism/usb/timesync_port.hpp"
     "include/prism/usb/exposure.hpp"
     "include/prism/usb/runtime_api.hpp"
     "include/prism/usb/streams.hpp"
