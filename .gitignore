@@ -7,3 +7,5 @@ ros2_ws/log/
 build/
 build-common/
 .DS_Store
+ros1_ws/build-*/
+ros1_ws/devel-*/

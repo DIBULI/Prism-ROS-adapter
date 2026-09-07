@@ -2,6 +2,9 @@ FROM ros:noetic-ros-base
 
 SHELL ["/bin/bash", "-c"]
 
+COPY docker/use_tsinghua_mirrors.sh /usr/local/bin/prism-use-tsinghua-mirrors
+RUN bash /usr/local/bin/prism-use-tsinghua-mirrors
+
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
       build-essential \
       libssl-dev \
