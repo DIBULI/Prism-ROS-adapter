@@ -28,6 +28,18 @@ libstdc++ and glibc while building in the target ROS environment.
 
 This repository pins Prism SDK `1.1.0` as the `third_party/Prism-SDK` Git
 submodule. It contains the Host SDK 1.1.0 runtime/ABI required by Agent 1.1.0.
+The pinned release commit is `c5e62d0685deeba85afb9eed34ea3d3ac3c36063`
+([SDK v1.1.0](https://github.com/DIBULI/Prism-SDK/releases/tag/v1.1.0)),
+including the aligned RK-local C++ API and interface guides under `docs/`.
+The ROS nodes use the Host USB client; updating this submodule does not switch
+them to the RK-local transport.
+
+For the Agent 1.1.0 camera-image swap fix, use Agent commit
+`a416e74d5c6130dad343b0da19ef7787962248a3` or a later build containing it.
+That fix handles delayed MPP JPEG results on the device. SDK and ROS camera
+indices remain unchanged; updating a host library alone does not patch an old
+Agent. See [the Agent fix](https://github.com/DIBULI/Prism-agent/commit/a416e74d5c6130dad343b0da19ef7787962248a3).
+
 Clone recursively:
 
 ```bash
