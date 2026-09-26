@@ -29,12 +29,16 @@ libstdc++ and glibc while building in the target ROS environment.
 
 This repository pins Prism SDK `1.2.0` as the `third_party/Prism-SDK` Git
 submodule. It contains the Host SDK 1.2.0 runtime/ABI 18 required by Agent 1.2.0.
-The pinned release commit is `6ed74f83fdcb7c1e6f76dc7954bb64d140cb0bd9`
+The pinned release commit is `84ed73e3a1e17dc6425c6b44e890f3098af59d3b`
 ([SDK v1.2.0](https://github.com/DIBULI/Prism-SDK/releases/tag/v1.2.0)),
 including the aligned RK-local C++ API and interface guides under `docs/`.
 The default build uses the Host USB client. A ROS 2 build with
 `-DPRISM_TRANSPORT=rklocal` instead links the ARM64 RK-local SDK; the two
 transports are separate binaries, not a runtime connection-mode toggle.
+
+This adapter does not provide offline dataset downloads (no service, topic or
+CLI). SDK raw-file export is for SDK/Viewer consumers; ROS bag conversion is a
+Viewer function, separate from this live ROS adapter.
 
 Use Agent 1.2.0 and Sensor Board 0.4.27. Do not mix SDK headers and libraries
 from different versions.

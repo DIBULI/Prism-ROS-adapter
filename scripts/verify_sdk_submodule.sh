@@ -17,6 +17,7 @@ EXPECTED_PREFIX_FILES=(
   include/prism/usb/common.hpp
   include/prism/usb/configuration.hpp
   include/prism/usb/device_info.hpp
+  include/prism/usb/datasets.hpp
   include/prism/usb/gnss_timing.hpp
   include/prism/usb/gnss_observation.hpp
   include/prism/usb/gnss_plot.hpp
