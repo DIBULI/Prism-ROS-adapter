@@ -1,8 +1,8 @@
 <?xml version="1.0"?>
 <package format="3">
   <name>prism_ros_driver</name>
-  <version>1.1.0</version>
-  <description>ROS 2 adapter for the DIBULI Prism USB SDK.</description>
+  <version>1.2.0</version>
+  <description>ROS 2 adapter for the DIBULI Prism USB and RK-local SDKs.</description>
   <maintainer email="support@dibuli.com">DIBULI</maintainer>
   <license>Proprietary</license>
 

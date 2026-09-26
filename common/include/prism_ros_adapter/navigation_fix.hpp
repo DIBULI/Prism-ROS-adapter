@@ -49,29 +49,23 @@ void fillGnssFix(Fix& fix, const GnssTimingStatusState& s) {
 }
 
 template <typename Fix>
-void fillRtkFix(Fix& fix, const RtkNavigationStatusState& s, bool smoothed) {
+void fillReceiverFix(Fix& fix, const ReceiverPositionState& s) {
   noFix(fix);
-  if (!(smoothed ? s.smoothed_position_valid : s.solution_valid)) return;
-  const auto solution = smoothed ? s.smoothed_solution : s.solution;
-  const auto latitude = smoothed ? s.smoothed_latitude_deg : s.latitude_deg;
-  const auto longitude = smoothed ? s.smoothed_longitude_deg : s.longitude_deg;
-  const auto altitude = smoothed ? s.smoothed_ellipsoidal_height_m : s.ellipsoidal_height_m;
-  if (solution == 0 || !std::isfinite(latitude) || !std::isfinite(longitude) ||
-      !std::isfinite(altitude) || std::abs(latitude) > 90 || std::abs(longitude) > 180)
-    return;
-  fix.status.status = (solution >= 2 && solution <= 4) ? 2 : 0;
-  fix.latitude = latitude;
-  fix.longitude = longitude;
-  fix.altitude = altitude;
-  const double east = smoothed ? s.smoothed_east_std_m : s.east_std_m;
-  const double north = smoothed ? s.smoothed_north_std_m : s.north_std_m;
-  const double up = smoothed ? s.smoothed_up_std_m : s.up_std_m;
-  if (std::isfinite(east) && std::isfinite(north) && std::isfinite(up) &&
-      east > 0 && north > 0 && up > 0) {
-    fix.position_covariance[0] = east * east;
-    fix.position_covariance[4] = north * north;
-    fix.position_covariance[8] = up * up;
-    fix.position_covariance_type = 2;  // DIAGONAL_KNOWN, ENU order.
+  if (!s.valid || s.age_ms > 2000 || !std::isfinite(s.latitude_deg) ||
+      !std::isfinite(s.longitude_deg) || std::abs(s.latitude_deg) > 90 ||
+      std::abs(s.longitude_deg) > 180) return;
+  fix.status.status = (s.quality == 2 || s.quality == 4 || s.quality == 5) ? 2 : 0;
+  fix.latitude = s.latitude_deg;
+  fix.longitude = s.longitude_deg;
+  if (s.height_valid && std::isfinite(s.ellipsoidal_height_m))
+    fix.altitude = s.ellipsoidal_height_m;
+  if (s.covariance_valid && std::isfinite(s.east_std_m) &&
+      std::isfinite(s.north_std_m) && std::isfinite(s.up_std_m) &&
+      s.east_std_m > 0 && s.north_std_m > 0 && s.up_std_m > 0) {
+    fix.position_covariance[0] = s.east_std_m * s.east_std_m;
+    fix.position_covariance[4] = s.north_std_m * s.north_std_m;
+    fix.position_covariance[8] = s.up_std_m * s.up_std_m;
+    fix.position_covariance_type = 2;
   }
 }
 }  // namespace prism_ros_adapter

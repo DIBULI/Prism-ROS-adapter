@@ -1,6 +1,0 @@
-# Explicitly acquire/release the Host correction input; no NTRIP login.
-bool enable
----
-bool success
-string message
-RtkCorrectionStatus status

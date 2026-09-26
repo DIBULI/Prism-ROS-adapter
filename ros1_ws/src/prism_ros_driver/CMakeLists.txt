@@ -8,7 +8,7 @@ find_package(catkin REQUIRED COMPONENTS
   sensor_msgs
   std_msgs
 )
-find_package(PrismUsbSdk 1.1.0 EXACT CONFIG REQUIRED)
+find_package(PrismUsbSdk 1.2.0 EXACT CONFIG REQUIRED)
 find_package(Threads REQUIRED)
 
 catkin_package(CATKIN_DEPENDS

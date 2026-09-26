@@ -1,0 +1,13 @@
+bool linked
+bool device_status_fresh
+bool control_status_fresh
+bool configuration_saved
+bool configuration_applied
+uint32 saved_generation
+uint32 applied_generation
+bool enabled
+bool credentials_present
+string ip
+uint16 port
+string mountpoint
+string username

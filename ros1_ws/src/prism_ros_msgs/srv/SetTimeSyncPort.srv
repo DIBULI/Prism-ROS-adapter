@@ -1,0 +1,6 @@
+bool confirm
+uint32 mode
+---
+bool success
+string message
+TimeSyncPortStatus status

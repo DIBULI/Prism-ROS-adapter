@@ -1,0 +1,11 @@
+bool confirm
+bool enabled
+string ip
+uint16 port
+string mountpoint
+string username
+string password
+---
+bool success
+string message
+TimeSyncCorsStatus status

@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SDK_DISTRIBUTION_VERSION="1.1.0"
-SDK_RUNTIME_VERSION="1.1.0"
+SDK_DISTRIBUTION_VERSION="1.2.0"
+SDK_RUNTIME_VERSION="1.2.0"
 SDK_ROOT="${PRISM_USB_SDK_ROOT:-${ROOT_DIR}/third_party/Prism-SDK}"
 CHECKSUM_FILE="${SDK_ROOT}/SHA256SUMS"
 
@@ -18,8 +18,12 @@ EXPECTED_PREFIX_FILES=(
   include/prism/usb/configuration.hpp
   include/prism/usb/device_info.hpp
   include/prism/usb/gnss_timing.hpp
+  include/prism/usb/gnss_observation.hpp
+  include/prism/usb/gnss_plot.hpp
+  include/prism/usb/gnss_reception.hpp
+  include/prism/usb/gnss_reception_runtime_api.hpp
+  include/prism/usb/lidar_points.hpp
   include/prism/usb/rtk.hpp
-  include/prism/usb/rtk_navigation.hpp
   include/prism/usb/timesync_port.hpp
   include/prism/usb/exposure.hpp
   include/prism/usb/runtime_api.hpp

@@ -18,6 +18,11 @@ EXPECTED_FIELDS = {
     "intensity": (12, PointField.UINT8),
     "tag": (13, PointField.UINT8),
     "offset_time": (16, PointField.UINT32),
+    "line": (14, PointField.UINT8),
+    "line_valid": (15, PointField.UINT8),
+    "ring": (20, PointField.UINT16),
+    "return_id": (22, PointField.UINT8),
+    "confidence": (23, PointField.UINT8),
 }
 FRAME_PERIOD_NS = 100_000_000
 
@@ -50,7 +55,7 @@ class PointCloudVerifier(Node):
                 raise RuntimeError(
                     f"invalid cloud dimensions {message.width}x{message.height}"
                 )
-            if message.point_step != 20:
+            if message.point_step != 28:
                 raise RuntimeError(f"invalid point_step {message.point_step}")
             if message.row_step != message.point_step * message.width:
                 raise RuntimeError("row_step does not match width * point_step")
@@ -69,8 +74,8 @@ class PointCloudVerifier(Node):
                 raise RuntimeError(
                     f"last offset_time is outside the 100 ms frame: {offsets[-1]}"
                 )
-            if any(current <= previous for previous, current in zip(offsets, offsets[1:])):
-                raise RuntimeError("offset_time is not strictly increasing")
+            if any(current < previous for previous, current in zip(offsets, offsets[1:])):
+                raise RuntimeError("offset_time is not nondecreasing")
 
             timestamp_ns = (
                 message.header.stamp.sec * 1_000_000_000

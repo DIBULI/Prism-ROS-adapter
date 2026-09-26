@@ -57,13 +57,13 @@ case "${DISTRO}" in
       grep -q "bool persisted" <<<"${wifi_service}"
       gnss_status="$(rosmsg show prism_ros_msgs/GnssTimingStatus)"
       grep -q "int64 message_pps_offset_us" <<<"${gnss_status}"
-      rtk_status="$(rosmsg show prism_ros_msgs/RtkCorrectionStatus)"
-      grep -q "uint16 correction_format" <<<"${rtk_status}"
-      rtk_navigation="$(rosmsg show prism_ros_msgs/RtkNavigationStatus)"
-      grep -q "float64 smoothed_latitude_deg" <<<"${rtk_navigation}"
+      rtk_status="$(rosmsg show prism_ros_msgs/TimeSyncRtkStatus)"
+      grep -q "uint8 rtcm_format" <<<"${rtk_status}"
+      rtk_navigation="$(rosmsg show prism_ros_msgs/ReceiverPosition)"
+      grep -q "float64 latitude_deg" <<<"${rtk_navigation}"
       rover_data="$(rosmsg show prism_ros_msgs/RtcmData)"
       grep -Fq "uint8[] data" <<<"${rover_data}"
-      for service in GetGnssTiming GetRtkStatus GetRtkNavigation GetTimeSyncPort ControlRtkCorrections SetRoverRtcm; do
+      for service in GetGnssTiming GetGnssReception GetRtkModuleStatus GetRtkModuleVersions GetCorsConfiguration SetCorsConfiguration ControlRtk GetReceiverPosition GetTimeSyncPort SetTimeSyncPort SetRoverRtcm SetUnifiedExposure; do
         rossrv show "prism_ros_msgs/${service}" >/dev/null
       done
       grep -q "uint32 gnss_uart_baud" <<<"${device_config_service}"
@@ -105,11 +105,11 @@ case "${DISTRO}" in
       grep -q "bool persisted" <<<"${wifi_status}"
       gnss_status="$(ros2 interface show prism_ros_msgs/msg/GnssTimingStatus)"
       grep -q "int64 message_pps_offset_us" <<<"${gnss_status}"
-      rtk_status="$(ros2 interface show prism_ros_msgs/msg/RtkCorrectionStatus)"
-      grep -q "uint16 correction_format" <<<"${rtk_status}"
-      rtk_navigation="$(ros2 interface show prism_ros_msgs/msg/RtkNavigationStatus)"
-      grep -q "float64 smoothed_latitude_deg" <<<"${rtk_navigation}"
-      for service in GetGnssTiming GetRtkStatus GetRtkNavigation GetTimeSyncPort ControlRtkCorrections SetRoverRtcm; do
+      rtk_status="$(ros2 interface show prism_ros_msgs/msg/TimeSyncRtkStatus)"
+      grep -q "uint8 rtcm_format" <<<"${rtk_status}"
+      rtk_navigation="$(ros2 interface show prism_ros_msgs/msg/ReceiverPosition)"
+      grep -q "float64 latitude_deg" <<<"${rtk_navigation}"
+      for service in GetGnssTiming GetGnssReception GetRtkModuleStatus GetRtkModuleVersions GetCorsConfiguration SetCorsConfiguration ControlRtk GetReceiverPosition GetTimeSyncPort SetTimeSyncPort SetRoverRtcm SetUnifiedExposure; do
         ros2 interface show "prism_ros_msgs/srv/${service}" >/dev/null
       done
       grep -q "uint32 gnss_uart_baud" <<<"${device_config_service}"

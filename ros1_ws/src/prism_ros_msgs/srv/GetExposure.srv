@@ -1,6 +1,7 @@
 ---
 bool success
 string message
+bool unified_automatic
 uint8 automatic_camera_mask
 uint8 target_brightness
 uint32[4] manual_exposure_time_us

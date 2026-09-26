@@ -21,6 +21,15 @@ find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 
+set(PRISM_TRANSPORT "usb" CACHE STRING "Prism transport: usb or rklocal")
+set_property(CACHE PRISM_TRANSPORT PROPERTY STRINGS usb rklocal)
+if(PRISM_TRANSPORT STREQUAL "rklocal")
+  set(PRISM_RKLOCAL_SDK_ROOT
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/Prism-SDK"
+    CACHE PATH "Prism-SDK 1.2.0 distribution root")
+  include("${PRISM_RKLOCAL_SDK_ROOT}/cmake/PrismRkLocalSdk.cmake")
+  set(PRISM_TRANSPORT_TARGET Prism::RkLocal)
+elseif(PRISM_TRANSPORT STREQUAL "usb")
 # Locate the bundled binary SDK prefix automatically so a bare `colcon build`
 # works out of the box. Precedence: explicit PrismUsbSdk_DIR / CMAKE_PREFIX_PATH
 # from the caller > PRISM_USB_SDK_PREFIX env (documented in README) > newest
@@ -42,7 +51,12 @@ if(NOT PrismUsbSdk_DIR)
     endif()
   endif()
 endif()
-find_package(PrismUsbSdk 1.1.0 EXACT CONFIG REQUIRED)
+find_package(PrismUsbSdk 1.2.0 EXACT CONFIG REQUIRED)
+  set(PRISM_TRANSPORT_TARGET Prism::UsbSdk)
+else()
+  message(FATAL_ERROR "PRISM_TRANSPORT must be usb or rklocal")
+endif()
+message(STATUS "Prism ROS transport: ${PRISM_TRANSPORT}")
 find_package(Threads REQUIRED)
 
 add_executable(prism_ros_driver_node
@@ -51,6 +65,9 @@ add_executable(prism_ros_driver_node
   ${CMAKE_CURRENT_SOURCE_DIR}/../../../common/src/lidar_frame_accumulator.cpp
 )
 target_compile_features(prism_ros_driver_node PRIVATE cxx_std_17)
+if(PRISM_TRANSPORT STREQUAL "rklocal")
+  target_compile_definitions(prism_ros_driver_node PRIVATE PRISM_ROS_RKLOCAL=1)
+endif()
 target_include_directories(prism_ros_driver_node PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/../../../common/include
 )
@@ -58,7 +75,7 @@ if(COMMAND ament_target_dependencies)
   # Humble/Jazzy keep the compatibility helper. Kilted deprecates it.
   ament_target_dependencies(prism_ros_driver_node
     diagnostic_msgs prism_ros_msgs rclcpp sensor_msgs std_msgs)
-  target_link_libraries(prism_ros_driver_node Prism::UsbSdk Threads::Threads)
+  target_link_libraries(prism_ros_driver_node ${PRISM_TRANSPORT_TARGET} Threads::Threads)
 else()
   # Lyrical and newer use only modern imported CMake targets.
   target_link_libraries(prism_ros_driver_node
@@ -68,7 +85,7 @@ else()
     ${std_msgs_TARGETS}
     rclcpp::rclcpp
     sensor_msgs::sensor_msgs_library
-    Prism::UsbSdk Threads::Threads
+    ${PRISM_TRANSPORT_TARGET} Threads::Threads
   )
 endif()
 if(NOT MSVC)

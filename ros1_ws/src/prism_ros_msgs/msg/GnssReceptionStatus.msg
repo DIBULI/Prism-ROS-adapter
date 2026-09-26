@@ -1,0 +1,13 @@
+bool sensor_board_online
+bool reception_available
+bool raw_data_seen
+bool raw_data_fresh
+bool nmea_sentence_seen
+bool nmea_sentence_fresh
+uint32 raw_age_ms
+uint32 nmea_sentence_age_ms
+uint64 raw_byte_count
+uint64 nmea_sentence_count
+uint64 nmea_rejected_count
+uint64 uart_frame_error_count
+uint64 fifo_overflow_count

@@ -1,0 +1,12 @@
+bool linked
+uint32 age_ms
+bool application_valid
+bool application_diagnostic
+uint16 application_major
+uint16 application_minor
+uint16 application_patch
+bool bootloader_valid
+bool bootloader_diagnostic
+uint16 bootloader_major
+uint16 bootloader_minor
+uint16 bootloader_patch

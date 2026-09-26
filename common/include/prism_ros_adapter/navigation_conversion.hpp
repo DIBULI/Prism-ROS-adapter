@@ -38,80 +38,6 @@ void copyGnssTimingStatus(Output& output, const Input& input) {
 }
 
 template <typename Output, typename Input>
-void copyRtkCorrectionStatus(Output& output, const Input& input) {
-  output.version = static_cast<uint16_t>(input.version);
-  output.flags = static_cast<uint32_t>(input.flags);
-  output.error_code = static_cast<int32_t>(input.error_code);
-  output.running = static_cast<bool>(input.running);
-  output.rover_connected = static_cast<bool>(input.rover_connected);
-  output.base_connected = static_cast<bool>(input.base_connected);
-  output.host_active = static_cast<bool>(input.host_active);
-  output.base_position_valid = static_cast<bool>(input.base_position_valid);
-  output.ntrip_configured = static_cast<bool>(input.ntrip_configured);
-  output.ntrip_connected = static_cast<bool>(input.ntrip_connected);
-  output.base_source = static_cast<uint16_t>(input.base_source);
-  output.correction_format = static_cast<uint16_t>(input.correction_format);
-  output.solution = static_cast<uint16_t>(input.solution);
-  output.host_correction_bytes = static_cast<uint64_t>(input.host_correction_bytes);
-  output.rover_bytes = static_cast<uint64_t>(input.rover_bytes);
-  output.base_bytes = static_cast<uint64_t>(input.base_bytes);
-  output.base_rtcm_messages = static_cast<uint64_t>(input.base_rtcm_messages);
-  output.base_observation_epochs = static_cast<uint64_t>(input.base_observation_epochs);
-  output.solution_count = static_cast<uint64_t>(input.solution_count);
-  output.fix_count = static_cast<uint64_t>(input.fix_count);
-  output.float_count = static_cast<uint64_t>(input.float_count);
-  output.decoder_errors = static_cast<uint64_t>(input.decoder_errors);
-}
-
-template <typename Output, typename Input>
-void copyRtkNavigationStatus(Output& output, const Input& input) {
-  output.version = static_cast<uint16_t>(input.version);
-  output.flags = static_cast<uint32_t>(input.flags);
-  output.error_code = static_cast<int32_t>(input.error_code);
-  output.solution_valid = static_cast<bool>(input.solution_valid);
-  output.base_position_valid = static_cast<bool>(input.base_position_valid);
-  output.confidence_valid = static_cast<bool>(input.confidence_valid);
-  output.position_jump_valid = static_cast<bool>(input.position_jump_valid);
-  output.base_source = static_cast<uint16_t>(input.base_source);
-  output.solution = static_cast<uint16_t>(input.solution);
-  output.confidence = static_cast<uint16_t>(input.confidence);
-  output.satellites = static_cast<uint16_t>(input.satellites);
-  output.confidence_score = static_cast<uint16_t>(input.confidence_score);
-  output.confidence_reasons = static_cast<uint32_t>(input.confidence_reasons);
-  output.base_station_id = static_cast<int32_t>(input.base_station_id);
-  output.consecutive_fix_epochs = static_cast<uint32_t>(input.consecutive_fix_epochs);
-  output.consecutive_float_epochs = static_cast<uint32_t>(input.consecutive_float_epochs);
-  output.solution_epoch_us = static_cast<int64_t>(input.solution_epoch_us);
-  output.latitude_deg = static_cast<double>(input.latitude_deg);
-  output.longitude_deg = static_cast<double>(input.longitude_deg);
-  output.ellipsoidal_height_m = static_cast<double>(input.ellipsoidal_height_m);
-  output.east_std_m = static_cast<double>(input.east_std_m);
-  output.north_std_m = static_cast<double>(input.north_std_m);
-  output.up_std_m = static_cast<double>(input.up_std_m);
-  output.differential_age_s = static_cast<double>(input.differential_age_s);
-  output.ambiguity_ratio = static_cast<double>(input.ambiguity_ratio);
-  output.position_jump_m = static_cast<double>(input.position_jump_m);
-  output.solution_count = static_cast<uint64_t>(input.solution_count);
-  output.fix_count = static_cast<uint64_t>(input.fix_count);
-  output.float_count = static_cast<uint64_t>(input.float_count);
-  output.rover_observation_epochs = static_cast<uint64_t>(input.rover_observation_epochs);
-  output.base_observation_epochs = static_cast<uint64_t>(input.base_observation_epochs);
-  output.decoder_errors = static_cast<uint64_t>(input.decoder_errors);
-  output.smoothed_position_valid = static_cast<bool>(input.smoothed_position_valid);
-  output.smoothed_solution = static_cast<uint16_t>(input.smoothed_solution);
-  output.smoothing_flags = static_cast<uint32_t>(input.smoothing_flags);
-  output.smoothed_solution_epoch_us = static_cast<int64_t>(input.smoothed_solution_epoch_us);
-  output.smoothed_latitude_deg = static_cast<double>(input.smoothed_latitude_deg);
-  output.smoothed_longitude_deg = static_cast<double>(input.smoothed_longitude_deg);
-  output.smoothed_ellipsoidal_height_m = static_cast<double>(input.smoothed_ellipsoidal_height_m);
-  output.smoothed_east_std_m = static_cast<double>(input.smoothed_east_std_m);
-  output.smoothed_north_std_m = static_cast<double>(input.smoothed_north_std_m);
-  output.smoothed_up_std_m = static_cast<double>(input.smoothed_up_std_m);
-  output.smoothing_reset_count = static_cast<uint64_t>(input.smoothing_reset_count);
-  output.smoothing_gated_epoch_count = static_cast<uint64_t>(input.smoothing_gated_epoch_count);
-}
-
-template <typename Output, typename Input>
 void copyTimeSyncPortStatus(Output& output, const Input& input) {
   output.mode = static_cast<uint32_t>(input.mode);
   output.persisted = static_cast<bool>(input.persisted);
@@ -128,5 +54,124 @@ void copyRoverRtcmStatus(Output& output, const Input& input) {
   output.buffered_bytes = static_cast<uint32_t>(input.buffered_bytes);
   output.maximum_event_bytes = static_cast<uint32_t>(input.maximum_event_bytes);
   output.dropped_bytes = static_cast<uint64_t>(input.dropped_bytes);
+}
+template <typename Output, typename Input>
+void copyGnssReceptionStatus(Output& output, const Input& input) {
+  output.sensor_board_online = input.sensor_board_online;
+  output.reception_available = input.reception_available;
+  output.raw_data_seen = input.raw_data_seen;
+  output.raw_data_fresh = input.raw_data_fresh;
+  output.nmea_sentence_seen = input.nmea_sentence_seen;
+  output.nmea_sentence_fresh = input.nmea_sentence_fresh;
+  output.raw_age_ms = input.raw_age_ms;
+  output.nmea_sentence_age_ms = input.nmea_sentence_age_ms;
+  output.raw_byte_count = input.raw_byte_count;
+  output.nmea_sentence_count = input.nmea_sentence_count;
+  output.nmea_rejected_count = input.nmea_rejected_count;
+  output.uart_frame_error_count = input.uart_frame_error_count;
+  output.fifo_overflow_count = input.fifo_overflow_count;
+}
+
+template <typename Output, typename Input>
+void copyTimeSyncRtkStatus(Output& output, const Input& input) {
+  output.linked = input.linked;
+  output.device_status_fresh = input.device_status_fresh;
+  output.control_status_fresh = input.control_status_fresh;
+  output.configuration_saved = input.configuration_saved;
+  output.configuration_applied = input.configuration_applied;
+  output.error_code = input.error_code;
+  output.age_ms = input.age_ms;
+  output.status_age_ms = input.status_age_ms;
+  output.saved_generation = input.saved_generation;
+  output.applied_generation = input.applied_generation;
+  output.control_generation = input.control_generation;
+  output.control_state = input.control_state;
+  output.control_error = input.control_error;
+  output.device_flags = input.device_flags;
+  output.sim = input.sim;
+  output.registration = input.registration;
+  output.fix = input.fix;
+  output.satellites = input.satellites;
+  output.rtcm_format = input.rtcm_format;
+  output.uptime_ms = input.uptime_ms;
+  output.gnss_age_ms = input.gnss_age_ms;
+  output.rtcm_age_ms = input.rtcm_age_ms;
+  output.network_bytes = input.network_bytes;
+  output.transmitted_bytes = input.transmitted_bytes;
+  output.rtcm_frames = input.rtcm_frames;
+  output.rtcm_errors = input.rtcm_errors;
+  output.upstream_drops = input.upstream_drops;
+  output.current_cors_generation = input.current_cors_generation;
+  output.gnss_drained_bytes = input.gnss_drained_bytes;
+  output.rtcm_drained_bytes = input.rtcm_drained_bytes;
+  output.lost_bytes = input.lost_bytes;
+}
+
+template <typename Output, typename Input>
+void copyTimeSyncRtkVersions(Output& output, const Input& input) {
+  output.linked = input.linked;
+  output.age_ms = input.age_ms;
+  output.application_valid = input.application_valid;
+  output.application_diagnostic = input.application_diagnostic;
+  output.application_major = input.application_major;
+  output.application_minor = input.application_minor;
+  output.application_patch = input.application_patch;
+  output.bootloader_valid = input.bootloader_valid;
+  output.bootloader_diagnostic = input.bootloader_diagnostic;
+  output.bootloader_major = input.bootloader_major;
+  output.bootloader_minor = input.bootloader_minor;
+  output.bootloader_patch = input.bootloader_patch;
+}
+
+template <typename Output, typename Input>
+void copyTimeSyncCorsStatus(Output& output, const Input& input) {
+  output.linked = input.linked;
+  output.device_status_fresh = input.device_status_fresh;
+  output.control_status_fresh = input.control_status_fresh;
+  output.configuration_saved = input.configuration_saved;
+  output.configuration_applied = input.configuration_applied;
+  output.saved_generation = input.saved_generation;
+  output.applied_generation = input.applied_generation;
+  output.enabled = input.enabled;
+  output.credentials_present = input.credentials_present;
+  output.ip = input.ip;
+  output.port = input.port;
+  output.mountpoint = input.mountpoint;
+  output.username = input.username;
+}
+
+template <typename Output, typename Input>
+void copyGnssObservations(Output& output, const Input& input) {
+  output.cursor = input.cursor;
+  output.device_monotonic_ms = input.device_monotonic_ms;
+  output.session = input.session;
+  output.gap = input.gap;
+  output.sequences = input.sequences;
+  output.received_ms = input.received_ms;
+  output.sentences = input.sentences;
+}
+
+template <typename Output, typename Input>
+void copyReceiverPosition(Output& output, const Input& input) {
+  output.valid = input.valid;
+  output.height_valid = input.height_valid;
+  output.covariance_valid = input.covariance_valid;
+  output.timestamp_valid = input.timestamp_valid;
+  output.source = input.source;
+  output.solution = input.solution;
+  output.time_system = input.time_system;
+  output.epoch = input.epoch;
+  output.quality = input.quality;
+  output.satellites = input.satellites;
+  output.age_ms = input.age_ms;
+  output.sequence = input.sequence;
+  output.session = input.session;
+  output.epoch_us = input.epoch_us;
+  output.latitude_deg = input.latitude_deg;
+  output.longitude_deg = input.longitude_deg;
+  output.ellipsoidal_height_m = input.ellipsoidal_height_m;
+  output.east_std_m = input.east_std_m;
+  output.north_std_m = input.north_std_m;
+  output.up_std_m = input.up_std_m;
 }
 }  // namespace prism_ros_adapter

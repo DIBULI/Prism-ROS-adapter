@@ -28,7 +28,8 @@ std::vector<LidarPointBatch> LidarFrameAccumulator::append(
   const size_t point_count = batch.points.size();
   for (size_t index = 0; index < point_count; ++index) {
     const uint64_t source_offset_ns =
-        pointOffsetNs(index, point_count, batch.time_interval_100ns);
+        batch.explicit_point_times ? batch.points[index].offset_time_ns
+                                  : pointOffsetNs(index, point_count, batch.time_interval_100ns);
     if (batch.timestamp_ns >
         std::numeric_limits<uint64_t>::max() - source_offset_ns) {
       throw std::overflow_error("LiDAR point timestamp overflow");

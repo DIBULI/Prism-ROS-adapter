@@ -3,7 +3,9 @@
 #include "prism_ros_adapter/device_time_resolver.hpp"
 #include "prism_ros_adapter/lidar_frame_accumulator.hpp"
 
-#include "prism/usb_sdk.hpp"
+#include "prism_ros_adapter/sdk_transport.hpp"
+#include "prism_ros_adapter/receiver_model.hpp"
+#include "prism_ros_adapter/lidar_conversion.hpp"
 
 #include <algorithm>
 #include <array>
@@ -53,25 +55,23 @@ std::string narrow(const std::wstring& value) {
 }
 
 prism::LidarModel toSdkModel(LidarModel model) {
-  return model == LidarModel::Mid360S ? prism::LidarModel::Mid360S
-                                      : prism::LidarModel::Mid360;
-}
-
-std::string lidarModelName(prism::LidarModel model) {
   switch (model) {
-    case prism::LidarModel::Mid360:
-      return "mid360";
-    case prism::LidarModel::Mid360S:
-      return "mid360s";
-    case prism::LidarModel::None:
-      return "none";
+    case LidarModel::Mid360: return prism::LidarModel::Mid360;
+    case LidarModel::Mid360S: return prism::LidarModel::Mid360S;
+    case LidarModel::Xt32: return prism::LidarModel::Xt32;
+  }
+  throw std::invalid_argument("unsupported LiDAR model");
+}
+std::string adapterLidarModelName(prism::LidarModel model) {
+  switch (model) {
+    case prism::LidarModel::Mid360: return "mid360";
+    case prism::LidarModel::Mid360S: return "mid360s";
+    case prism::LidarModel::Xt32: return "xt32";
+    case prism::LidarModel::None: return "none";
   }
   return "unknown";
 }
-
-std::string lidarModelName(LidarModel model) {
-  return model == LidarModel::Mid360S ? "mid360s" : "mid360";
-}
+std::string adapterLidarModelName(LidarModel model) { return adapterLidarModelName(toSdkModel(model)); }
 
 bool isValidIpv4(const std::string& value) {
   if (value.empty()) return false;
@@ -143,15 +143,37 @@ GnssTimingStatusState fromSdk(const prism::GnssTimingStatus& value) {
   return output;
 }
 
-RtkCorrectionStatusState fromSdk(const prism::RtkCorrectionStatus& value) {
-  RtkCorrectionStatusState output;
-  copyRtkCorrectionStatus(output, value);
+GnssReceptionStatusState fromSdk(const prism::GnssReceptionStatus& value) {
+  GnssReceptionStatusState output;
+  copyGnssReceptionStatus(output, value);
   return output;
 }
 
-RtkNavigationStatusState fromSdk(const prism::RtkNavigationStatus& value) {
-  RtkNavigationStatusState output;
-  copyRtkNavigationStatus(output, value);
+TimeSyncRtkStatusState fromSdk(const prism::TimeSyncRtkStatus& value) {
+  TimeSyncRtkStatusState output;
+  copyTimeSyncRtkStatus(output, value);
+  return output;
+}
+
+TimeSyncCorsStatusState fromSdk(const prism::TimeSyncCorsStatus& value) {
+  TimeSyncCorsStatusState output;
+  copyTimeSyncCorsStatus(output, value);
+  return output;
+}
+TimeSyncRtkVersionsState fromSdk(const prism::TimeSyncRtkVersions& value) {
+  TimeSyncRtkVersionsState output;
+  output.linked = value.linked;
+  output.age_ms = value.age_ms;
+  output.application_valid = value.application.valid;
+  output.application_diagnostic = value.application.diagnostic;
+  output.application_major = value.application.major;
+  output.application_minor = value.application.minor;
+  output.application_patch = value.application.patch;
+  output.bootloader_valid = value.bootloader.valid;
+  output.bootloader_diagnostic = value.bootloader.diagnostic;
+  output.bootloader_major = value.bootloader.major;
+  output.bootloader_minor = value.bootloader.minor;
+  output.bootloader_patch = value.bootloader.patch;
   return output;
 }
 
@@ -184,7 +206,7 @@ LidarStatusState fromSdk(const prism::LidarStatus& value) {
   output.enabled = value.enabled;
   output.connected = value.connected;
   output.receiving = value.receiving;
-  output.model = lidarModelName(value.model);
+  output.model = adapterLidarModelName(value.model);
   output.device_type = value.device_type;
   output.handle = value.handle;
   output.packet_count = value.packet_count;
@@ -233,6 +255,7 @@ WifiHotspotState fromSdk(const prism::WifiHotspotStatus& value) {
 
 ExposureState fromSdk(const prism::ExposureConfiguration& value) {
   ExposureState output;
+  output.unified_automatic = value.unified_automatic;
   output.automatic_camera_mask = value.automatic_camera_mask;
   output.target_brightness = value.target_brightness;
   output.manual_exposure_time_us = value.manual_exposure_time_us;
@@ -365,9 +388,9 @@ struct CameraAssembly {
 
 struct Driver::Impl {
   struct ControlContext {
-    prism::Client& client;
-    std::unique_ptr<prism::ImuStream>& imu_stream;
-    std::unique_ptr<prism::LidarStream>& lidar_stream;
+    sdk::Client& client;
+    std::unique_ptr<sdk::ImuStream>& imu_stream;
+    std::unique_ptr<sdk::LidarStream>& lidar_stream;
     uint32_t imu_sensor_count;
     bool& video_started;
     bool& imu_started;
@@ -383,14 +406,19 @@ struct Driver::Impl {
       : config(std::move(config_in)),
         callbacks(std::move(callbacks_in)),
         gnss_dispatch(1, callbacks.gnss),
-        navigation_dispatch(1, callbacks.rtk_navigation),
-        rtk_status_dispatch(1, callbacks.rtk_status),
+        receiver_dispatch(8, callbacks.receiver),
+        observations_dispatch(32, callbacks.observations),
+        reception_dispatch(1, callbacks.reception),
+        rtk_module_dispatch(1, callbacks.rtk_module),
         rover_dispatch(1024, callbacks.rover_rtcm),
         camera_dispatch(2, callbacks.camera),
         board_imu_dispatch(8192, callbacks.board_imu),
         lidar_dispatch(16, callbacks.lidar_points),
         lidar_imu_dispatch(2048, callbacks.lidar_imu) {
     for (auto& counter : board_imu_samples) counter.store(0);
+    if (config.gps_utc_leap_seconds < -1 || config.gps_utc_leap_seconds > 64)
+      throw std::invalid_argument("gps_utc_leap_seconds must be -1 or 0..64");
+    receiver_model.gps_utc_leap_seconds = config.gps_utc_leap_seconds;
   }
 
   template <typename Result, typename Function>
@@ -454,13 +482,13 @@ struct Driver::Impl {
 
   void ensureStreamObjects(ControlContext& context) {
     if (config.enable_board_imu && !context.imu_stream) {
-      context.imu_stream = std::make_unique<prism::ImuStream>(
+      context.imu_stream = std::make_unique<sdk::ImuStream>(
           context.client, [this](const prism::ImuSample& sample) {
             dispatchBoardImu(sample);
           });
     }
     if (config.enable_lidar && !context.lidar_stream) {
-      context.lidar_stream = std::make_unique<prism::LidarStream>(
+      context.lidar_stream = std::make_unique<sdk::LidarStream>(
           context.client,
           [this](const prism::LidarPointBatch& batch) {
             dispatchLidarPoints(batch);
@@ -479,7 +507,7 @@ struct Driver::Impl {
     output.camera_active = context.video_started;
     output.board_imu_active = context.imu_started;
     output.lidar_active = context.lidar_started;
-    output.lidar_model = lidarModelName(config.lidar_model);
+    output.lidar_model = adapterLidarModelName(config.lidar_model);
     return output;
   }
 
@@ -523,7 +551,7 @@ struct Driver::Impl {
     }
   }
 
-  void configureLidarNetworkOnStart(prism::Client& client) {
+  void configureLidarNetworkOnStart(sdk::Client& client) {
     if (!config.lidar_network_apply_on_start) return;
     if (!isValidIpv4(config.lidar_host_ip)) {
       throw std::invalid_argument("lidar_host_ip is not a valid IPv4 address");
@@ -674,6 +702,11 @@ struct Driver::Impl {
   }
 
   SystemTimeSyncState synchronizeSystemTime(ControlContext& context) {
+#ifdef PRISM_ROS_RKLOCAL
+    // Container and Agent use the same RK clock, not an external UTC source.
+    throw std::runtime_error(
+        "sync_system_time requires an external USB host; RK-local shares the RK clock");
+#endif
     // Fail before pausing acquisition. Agent performs the authoritative check
     // again when the request reaches it (GNSS can lock between these calls).
     if (context.client.gnssTimingStatus().time_synced) {
@@ -796,9 +829,26 @@ struct Driver::Impl {
     if (callbacks.log) callbacks.log(level, text);
   }
 
-  prism::Client openClient() const {
-    if (config.device_serial.empty()) return prism::Client::openFirst();
-    const auto devices = prism::Client::enumerate();
+  sdk::Client openClient() const {
+#ifdef PRISM_ROS_RKLOCAL
+    if (!config.device_serial.empty()) {
+      throw std::invalid_argument("device_serial is USB-only; use rklocal_socket on RK");
+    }
+    if (config.rklocal_socket.empty() || config.rklocal_socket.front() != '/') {
+      throw std::invalid_argument("rklocal_socket must be an absolute socket path");
+    }
+    prism::rklocal::ClientOptions options;
+    options.socket_path = config.rklocal_socket;
+    options.raw_camera_imu_frames = true;
+    // Navigation/control queries can briefly delay the consumer. Bound both
+    // events and bytes; expose overflow as a failure instead of silent loss.
+    options.raw_frame_queue_capacity = 8192;
+    options.raw_frame_queue_bytes = 32u * 1024u * 1024u;
+    log(LogLevel::Info, "Connecting RK-local Agent: " + options.socket_path);
+    return sdk::Client::open(options);
+#else
+    if (config.device_serial.empty()) return sdk::Client::openFirst();
+    const auto devices = sdk::Client::enumerate();
     const auto found = std::find_if(
         devices.begin(), devices.end(), [this](const prism::DeviceInfo& info) {
           return narrow(info.serial_number) == config.device_serial;
@@ -807,13 +857,16 @@ struct Driver::Impl {
       throw std::runtime_error("Prism device serial not found: " +
                                config.device_serial);
     }
-    return prism::Client::open(*found);
+    return sdk::Client::open(*found);
+#endif
   }
 
   void startDispatchers() {
     gnss_dispatch.start();
-    navigation_dispatch.start();
-    rtk_status_dispatch.start();
+    receiver_dispatch.start();
+    observations_dispatch.start();
+    reception_dispatch.start();
+    rtk_module_dispatch.start();
     rover_dispatch.start();
     camera_dispatch.start();
     board_imu_dispatch.start();
@@ -823,8 +876,10 @@ struct Driver::Impl {
 
   void stopDispatchers() {
     gnss_dispatch.stop();
-    navigation_dispatch.stop();
-    rtk_status_dispatch.stop();
+    receiver_dispatch.stop();
+    observations_dispatch.stop();
+    reception_dispatch.stop();
+    rtk_module_dispatch.stop();
     rover_dispatch.stop();
     lidar_imu_dispatch.stop();
     lidar_dispatch.stop();
@@ -875,25 +930,13 @@ struct Driver::Impl {
       dropped_unsynchronized.fetch_add(1);
       return;
     }
-    LidarPointBatch source_batch;
-    source_batch.batch_id = batch.batch_id;
-    source_batch.timestamp_ns =
-        resolved ? resolved->timestamp_ns : sdk_timestamp_ns;
+    auto source_batch = convertLidarBatch(batch,
+        resolved ? resolved->timestamp_ns : sdk_timestamp_ns);
     if (resolved &&
         resolved->candidate == DeviceTimeCandidate::LidarRaw) {
       lidar_raw_timestamp_selected.fetch_add(1);
     } else {
       lidar_sdk_timestamp_selected.fetch_add(1);
-    }
-    source_batch.timestamp_raw = batch.timestamp_raw;
-    source_batch.time_interval_100ns = batch.time_interval_100ns;
-    source_batch.points.reserve(batch.points.size());
-    for (const auto& point : batch.points) {
-      source_batch.points.push_back(
-          {static_cast<float>(point.x_mm) * 0.001F,
-           static_cast<float>(point.y_mm) * 0.001F,
-           static_cast<float>(point.z_mm) * 0.001F,
-           point.reflectivity, point.tag, 0u});
     }
     lidar_batches.fetch_add(1);
     lidar_points.fetch_add(source_batch.points.size());
@@ -936,7 +979,7 @@ struct Driver::Impl {
     lidar_imu_dispatch.push(std::move(output));
   }
 
-  void handleVideoChunk(prism::Client& client,
+  void handleVideoChunk(sdk::Client& client,
                         const prism::VideoChunkView& chunk) {
     if (chunk.camera_id >= 4 || chunk.encoded_size == 0 ||
         chunk.chunk_offset > chunk.encoded_size ||
@@ -975,7 +1018,7 @@ struct Driver::Impl {
     trimCameraAssemblies(client);
   }
 
-  void handleVideoMeta(prism::Client& client, const prism::VideoMeta& meta) {
+  void handleVideoMeta(sdk::Client& client, const prism::VideoMeta& meta) {
     if (meta.valid && meta.trigger_time_ns != 0u) {
       device_time_resolver.observeCamera(meta.trigger_time_ns, steadyNowNs());
     }
@@ -986,7 +1029,7 @@ struct Driver::Impl {
     trimCameraAssemblies(client);
   }
 
-  void finishCameraFrame(prism::Client& client, uint32_t frame_id) {
+  void finishCameraFrame(sdk::Client& client, uint32_t frame_id) {
     const auto found = camera_assemblies.find(frame_id);
     if (found == camera_assemblies.end()) return;
     auto& assembly = found->second;
@@ -1015,7 +1058,7 @@ struct Driver::Impl {
     }
 
     // Release the Agent's next camera credit before ROS serialization.
-    client.sendVideoAck(frame_id);
+    sdk::acknowledgeVideo(client, frame_id);
     camera_assemblies.erase(found);
 
     if (config.enable_camera && payload_complete &&
@@ -1025,12 +1068,12 @@ struct Driver::Impl {
     }
   }
 
-  void trimCameraAssemblies(prism::Client& client) {
+  void trimCameraAssemblies(sdk::Client& client) {
     while (camera_assemblies.size() > 8) {
       const auto found = camera_assemblies.begin();
       const uint32_t stale_frame_id = found->first;
       camera_assemblies.erase(found);
-      client.sendVideoAck(stale_frame_id);
+      sdk::acknowledgeVideo(client, stale_frame_id);
       log(LogLevel::Warning, "discarded incomplete camera frame set " +
                                  std::to_string(stale_frame_id));
     }
@@ -1070,8 +1113,8 @@ struct Driver::Impl {
     if (callbacks.status) callbacks.status(snapshot(state_text, error_text));
   }
 
-  void establishDeviceTimeReference(prism::Client& client,
-                                    prism::ImuStream* imu_stream) {
+  void establishDeviceTimeReference(sdk::Client& client,
+                                    sdk::ImuStream* imu_stream) {
     if (!config.require_synchronized_timestamps ||
         (!config.enable_camera && !config.enable_board_imu)) {
       return;
@@ -1114,7 +1157,7 @@ struct Driver::Impl {
     device_time_resolver.reset();
     lidar_frame_accumulator.reset();
     startDispatchers();
-    prism::Client client = openClient();
+    sdk::Client client = openClient();
     client.setKeepaliveEnabled(true);
     const auto info = client.deviceInfo();
     usb3_connected = info.usb3_connected;
@@ -1133,20 +1176,20 @@ struct Driver::Impl {
     camera_mask = static_cast<uint8_t>(info.camera_present_mask & 0x0fu);
     if (camera_mask == 0u) camera_mask = 0x0fu;
 
-    std::unique_ptr<prism::ImuStream> imu_stream;
-    std::unique_ptr<prism::LidarStream> lidar_stream;
+    std::unique_ptr<sdk::ImuStream> imu_stream;
+    std::unique_ptr<sdk::LidarStream> lidar_stream;
     uint32_t imu_sensor_count = config.imu_sensor_count;
     if (imu_sensor_count == 0) {
       imu_sensor_count = std::max<uint32_t>(1, info.detected_imu_count);
     }
     if (config.enable_board_imu) {
-      imu_stream = std::make_unique<prism::ImuStream>(
+      imu_stream = std::make_unique<sdk::ImuStream>(
           client, [this](const prism::ImuSample& sample) {
             dispatchBoardImu(sample);
           });
     }
     if (config.enable_lidar) {
-      lidar_stream = std::make_unique<prism::LidarStream>(
+      lidar_stream = std::make_unique<sdk::LidarStream>(
           client,
           [this](const prism::LidarPointBatch& batch) {
             dispatchLidarPoints(batch);
@@ -1173,6 +1216,11 @@ struct Driver::Impl {
       auto next_navigation = std::chrono::steady_clock::now();
       auto last_frame_received = std::chrono::steady_clock::now();
       while (!stop_requested.load() && keep_running()) {
+#ifdef PRISM_ROS_RKLOCAL
+        if (client.droppedRawFrames() != 0) {
+          throw std::runtime_error("RK-local raw event queue overflow; acquisition stopped to avoid silent data loss");
+        }
+#endif
         processControls(control_context);
         if (!fatal_control_error.empty()) {
           throw std::runtime_error(fatal_control_error);
@@ -1217,8 +1265,9 @@ struct Driver::Impl {
         // the SDK, so ROS callbacks never race USB reads.
         if (config.enable_navigation && now >= next_navigation) {
           try {
-            gnss_dispatch.push(fromSdk(client.gnssTimingStatus()));
-            navigation_dispatch.push(fromSdk(client.rtkNavigationStatus()));
+            receiver_model.timing = fromSdk(client.gnssTimingStatus());
+            gnss_dispatch.push(receiver_model.timing);
+            pollReceiver(client);
           } catch (const std::exception& error) {
             // No stale-success publication. Diagnostics show query failure.
             if (now >= next_status) log(LogLevel::Warning,
@@ -1228,7 +1277,10 @@ struct Driver::Impl {
         }
         if (now >= next_status) {
           if (config.enable_navigation) {
-            try { rtk_status_dispatch.push(fromSdk(client.rtkCorrectionStatus())); }
+            try {
+              reception_dispatch.push(fromSdk(client.gnssReceptionStatus()));
+              rtk_module_dispatch.push(fromSdk(client.timeSyncRtkStatus()));
+            }
             catch (const std::exception& error) {
               log(LogLevel::Warning, std::string("RTK status failed: ") + error.what());
             }
@@ -1256,17 +1308,32 @@ struct Driver::Impl {
     stopDispatchers();
   }
 
-  void cleanup(prism::Client& client, prism::LidarStream* lidar_stream,
-               prism::ImuStream* imu_stream, bool lidar_started,
+  void pollReceiver(sdk::Client& client) {
+    const auto batch = client.gnssObservations(receiver_model.model.cursor,
+                                                receiver_model.model.session);
+    receiver_model.apply(batch);
+    GnssObservationsState output;
+    output.cursor = batch.cursor;
+    output.device_monotonic_ms = batch.device_monotonic_ms;
+    output.session = batch.session;
+    output.gap = batch.gap;
+    for (const auto& record : batch.records) {
+      output.sequences.push_back(record.sequence);
+      output.received_ms.push_back(record.received_ms);
+      output.sentences.push_back(record.sentence);
+    }
+    observations_dispatch.push(std::move(output));
+    receiver_dispatch.push(receiver_model.position(false, batch.device_monotonic_ms));
+    receiver_dispatch.push(receiver_model.position(true, batch.device_monotonic_ms));
+  }
+
+  void cleanup(sdk::Client& client, sdk::LidarStream* lidar_stream,
+               sdk::ImuStream* imu_stream, bool lidar_started,
                bool imu_started, bool video_started) noexcept {
     try {
       if (rover_started) client.stopRoverRtcm();
     } catch (...) {}
     rover_started = false;
-    try {
-      if (host_corrections_owned) client.endRtkCorrections();
-    } catch (...) {}
-    host_corrections_owned = false;
     try {
       if (lidar_started && lidar_stream != nullptr) lidar_stream->stop();
     } catch (...) {
@@ -1288,10 +1355,12 @@ struct Driver::Impl {
   DriverConfig config;
   DriverCallbacks callbacks;
   bool rover_started = false;
-  bool host_corrections_owned = false;
   DispatchQueue<GnssTimingStatusState> gnss_dispatch;
-  DispatchQueue<RtkNavigationStatusState> navigation_dispatch;
-  DispatchQueue<RtkCorrectionStatusState> rtk_status_dispatch;
+  ReceiverModel receiver_model;
+  DispatchQueue<ReceiverPositionState> receiver_dispatch;
+  DispatchQueue<GnssObservationsState> observations_dispatch;
+  DispatchQueue<GnssReceptionStatusState> reception_dispatch;
+  DispatchQueue<TimeSyncRtkStatusState> rtk_module_dispatch;
   DispatchQueue<RtcmData> rover_dispatch;
   DispatchQueue<CameraFrameSet> camera_dispatch;
   DispatchQueue<BoardImuSample> board_imu_dispatch;
@@ -1409,15 +1478,27 @@ GnssTimingStatusState Driver::getGnssTiming() {
   });
 }
 
-RtkNavigationStatusState Driver::getRtkNavigation() {
-  return impl_->invokeControl<RtkNavigationStatusState>([](auto& context) {
-    return fromSdk(context.client.rtkNavigationStatus());
+GnssReceptionStatusState Driver::getGnssReception() {
+  return impl_->invokeControl<GnssReceptionStatusState>([](auto& context) {
+    return fromSdk(context.client.gnssReceptionStatus());
   });
 }
 
-RtkCorrectionStatusState Driver::getRtkStatus() {
-  return impl_->invokeControl<RtkCorrectionStatusState>([](auto& context) {
-    return fromSdk(context.client.rtkCorrectionStatus());
+TimeSyncRtkStatusState Driver::getRtkModuleStatus() {
+  return impl_->invokeControl<TimeSyncRtkStatusState>([](auto& context) {
+    return fromSdk(context.client.timeSyncRtkStatus());
+  });
+}
+
+TimeSyncRtkVersionsState Driver::getRtkModuleVersions() {
+  return impl_->invokeControl<TimeSyncRtkVersionsState>([](auto& context) {
+    return fromSdk(context.client.timeSyncRtkVersions());
+  });
+}
+
+TimeSyncCorsStatusState Driver::getCorsConfiguration() {
+  return impl_->invokeControl<TimeSyncCorsStatusState>([](auto& context) {
+    return fromSdk(context.client.timeSyncCorsConfiguration());
   });
 }
 
@@ -1427,32 +1508,79 @@ TimeSyncPortStatusState Driver::getTimeSyncPort() {
   });
 }
 
-RtkCorrectionStatusState Driver::controlRtkCorrections(bool enable) {
-  return impl_->invokeControl<RtkCorrectionStatusState>([this, enable](auto& context) {
-    if (!enable && !impl_->host_corrections_owned)
-      throw std::runtime_error("this node does not own the Host correction input");
-    const auto status = enable ? context.client.beginRtkCorrections()
-                               : context.client.endRtkCorrections();
-    impl_->host_corrections_owned = status.host_active;
-    if (status.error_code != 0 || status.host_active != enable)
-      throw std::runtime_error("Agent rejected RTK correction control");
-    return fromSdk(status);
+TimeSyncCorsStatusState Driver::setCorsConfiguration(CorsConfiguration value) {
+  return impl_->invokeControl<TimeSyncCorsStatusState>([value = std::move(value)](auto& context) {
+    prism::TimeSyncCorsConfiguration configuration;
+    configuration.enabled = value.enabled;
+    configuration.ip = value.ip;
+    configuration.port = value.port;
+    configuration.mountpoint = value.mountpoint;
+    configuration.username = value.username;
+    configuration.password = value.password;
+    const auto saved = context.client.saveTimeSyncCorsConfiguration(configuration);
+    if (!saved.configuration_saved || saved.enabled != value.enabled)
+      throw std::runtime_error("CORS configuration was not persisted as requested");
+    return fromSdk(saved);
   });
 }
 
-RtkCorrectionStatusState Driver::sendRtkCorrections(std::vector<uint8_t> data) {
-  if (data.empty() || data.size() > prism::kRtkCorrectionMaxChunk)
-    throw std::invalid_argument("RTCM chunk must contain 1..16384 bytes");
-  return impl_->invokeControl<RtkCorrectionStatusState>(
-      [this, data = std::move(data)](auto& context) {
-        if (!impl_->host_corrections_owned)
-          throw std::runtime_error("call rtk/control_corrections enable=true first");
-        const auto status = context.client.sendRtkCorrections(data);
-        if (status.error_code != 0 || !status.host_active ||
-            status.correction_format == prism::RtkCorrectionFormat::Unsupported)
-          throw std::runtime_error("Agent rejected RTCM correction data (RTCM2.x/RTCM3 only)");
-        return fromSdk(status);
-      });
+TimeSyncRtkStatusState Driver::controlRtk(std::string command, uint32_t generation,
+                                        bool allow_gga, uint32_t timeout_ms) {
+  if (command != "start" && command != "stop")
+    throw std::invalid_argument("command must be start or stop");
+  if (timeout_ms == 0 || timeout_ms > 60000)
+    throw std::invalid_argument("timeout_ms must be 1..60000");
+  return impl_->invokeControl<TimeSyncRtkStatusState>([=](auto& context) {
+    // A terminal-state confirmation may take seconds. Pause this node's sensor
+    // streams so they cannot overflow while the serialized SDK command runs.
+    return impl_->runIdleOperation<TimeSyncRtkStatusState>(context, "rtk_control",
+        [=](sdk::Client& client) {
+          if (command == "stop") return fromSdk(client.stopRtk(timeout_ms));
+          prism::RtkStartOptions options;
+          options.expected_cors_generation = generation;
+          options.allow_gga = allow_gga;
+          options.timeout_ms = timeout_ms;
+          return fromSdk(client.startRtk(options));
+        });
+  });
+}
+
+TimeSyncPortStatusState Driver::setTimeSyncPort(uint32_t mode) {
+  if (mode > 2) throw std::invalid_argument("mode must be 0 (input), 1 (output), or 2 (RTK)");
+  return impl_->invokeControl<TimeSyncPortStatusState>([=](auto& context) {
+    return impl_->runIdleOperation<TimeSyncPortStatusState>(context, "timesync_mode",
+        [=](sdk::Client& client) {
+          const auto status = client.setTimeSyncPortMode(static_cast<prism::TimeSyncPortMode>(mode));
+          if (!status.applied || !status.persisted || status.error_code != 0 ||
+              static_cast<uint32_t>(status.mode) != mode)
+            throw std::runtime_error("TimeSync mode was not applied/persisted; read current status");
+          return fromSdk(status);
+        });
+  });
+}
+
+ReceiverPositionState Driver::getReceiverPosition(bool rtk) {
+  return impl_->invokeControl<ReceiverPositionState>([=](auto& context) {
+    impl_->receiver_model.timing = fromSdk(context.client.gnssTimingStatus());
+    impl_->pollReceiver(context.client);
+    return impl_->receiver_model.position(rtk, impl_->receiver_model.model.now);
+  });
+}
+
+ExposureState Driver::setUnifiedExposure(bool enabled) {
+  return impl_->invokeControl<ExposureState>([=](auto& context) {
+    auto configuration = context.client.cameraExposure();
+    configuration.unified_automatic = enabled;
+    uint32_t mask = prism::kExposureFieldUnifiedAutomatic;
+    if (enabled) {
+      configuration.automatic_camera_mask = prism::kCameraAutomaticMaskAll;
+      mask |= prism::kExposureFieldCameraAll;
+    }
+    const auto status = context.client.setExposureConfiguration(configuration, mask);
+    if (status.unified_automatic != enabled)
+      throw std::runtime_error("unified automatic exposure was not applied");
+    return fromSdk(status);
+  });
 }
 
 RoverRtcmStatusState Driver::setRoverRtcm(bool enable) {
@@ -1508,7 +1636,7 @@ DeviceConfigurationState Driver::setDeviceConfiguration(
     throw std::invalid_argument("select at least one configuration field");
   return impl_->invokeControl<DeviceConfigurationState>(
       [=](auto& context) {
-        auto save = [=](prism::Client& client) {
+        auto save = [=](sdk::Client& client) {
           auto configuration = client.deviceConfiguration();
           if (set_camera_fps) configuration.camera_fps = camera_fps;
           if (set_imu_rate_hz) configuration.imu_rate_hz = imu_rate_hz;
@@ -1535,7 +1663,7 @@ LidarStatusState Driver::getLidarStatus() {
 LidarNetworkState Driver::getLidarNetwork() {
   return impl_->invokeControl<LidarNetworkState>([this](auto& context) {
     return impl_->runIdleOperation<LidarNetworkState>(
-        context, "reading_lidar_network", [](prism::Client& client) {
+        context, "reading_lidar_network", [](sdk::Client& client) {
           return fromSdk(client.lidarNetworkStatus());
         });
   });
@@ -1551,7 +1679,7 @@ LidarNetworkState Driver::setLidarNetwork(bool enabled, std::string host_ip,
         return impl_->runIdleOperation<LidarNetworkState>(
             context, "saving_lidar_network",
             [enabled, host_ip, netmask,
-             lidar_ip](prism::Client& client) {
+             lidar_ip](sdk::Client& client) {
               prism::LidarNetworkConfiguration configuration;
               configuration.enabled = enabled;
               configuration.host_ip = host_ip;
@@ -1566,7 +1694,7 @@ LidarNetworkState Driver::setLidarNetwork(bool enabled, std::string host_ip,
 LidarNetworkState Driver::probeLidarNetwork() {
   return impl_->invokeControl<LidarNetworkState>([this](auto& context) {
     return impl_->runIdleOperation<LidarNetworkState>(
-        context, "probing_lidar_network", [](prism::Client& client) {
+        context, "probing_lidar_network", [](sdk::Client& client) {
           return fromSdk(client.probeLidarNetwork());
         });
   });
@@ -1589,7 +1717,7 @@ StreamState Driver::controlStreams(StreamCommand command, bool camera,
 WifiHotspotState Driver::getWifiHotspot() {
   return impl_->invokeControl<WifiHotspotState>([this](auto& context) {
     return impl_->runIdleOperation<WifiHotspotState>(
-        context, "reading_wifi_hotspot", [](prism::Client& client) {
+        context, "reading_wifi_hotspot", [](sdk::Client& client) {
           return fromSdk(client.wifiHotspotStatus());
         });
   });
@@ -1600,7 +1728,7 @@ WifiHotspotState Driver::setWifiHotspot(bool enabled) {
       [this, enabled](auto& context) {
         return impl_->runIdleOperation<WifiHotspotState>(
             context, "saving_wifi_hotspot",
-            [enabled](prism::Client& client) {
+            [enabled](sdk::Client& client) {
               return fromSdk(client.setWifiHotspotEnabled(enabled));
             });
       });

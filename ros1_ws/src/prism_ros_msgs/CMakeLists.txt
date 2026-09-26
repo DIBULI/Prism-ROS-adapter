@@ -4,9 +4,13 @@ project(prism_ros_msgs)
 find_package(catkin REQUIRED COMPONENTS message_generation std_msgs)
 
 add_message_files(FILES
+  GnssReceptionStatus.msg
+  TimeSyncRtkStatus.msg
+  TimeSyncRtkVersions.msg
+  TimeSyncCorsStatus.msg
+  GnssObservations.msg
+  ReceiverPosition.msg
   GnssTimingStatus.msg
-  RtkCorrectionStatus.msg
-  RtkNavigationStatus.msg
   TimeSyncPortStatus.msg
   RoverRtcmStatus.msg
   RtcmData.msg
@@ -19,11 +23,17 @@ add_message_files(FILES
   WifiHotspotStatus.msg
 )
 add_service_files(FILES
+  GetGnssReception.srv
+  GetRtkModuleStatus.srv
+  GetRtkModuleVersions.srv
+  GetCorsConfiguration.srv
+  SetCorsConfiguration.srv
+  ControlRtk.srv
+  SetTimeSyncPort.srv
+  GetReceiverPosition.srv
+  SetUnifiedExposure.srv
   GetGnssTiming.srv
-  GetRtkStatus.srv
-  GetRtkNavigation.srv
   GetTimeSyncPort.srv
-  ControlRtkCorrections.srv
   SetRoverRtcm.srv
   ControlStreams.srv
   GetDeviceConfiguration.srv

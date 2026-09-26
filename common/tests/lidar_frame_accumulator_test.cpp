@@ -35,9 +35,57 @@ LidarPointBatch makeBatch(uint32_t batch_id, uint64_t timestamp_ns,
   return batch;
 }
 
+void testPacketTimeGapsSurviveRosFrameAggregation() {
+  constexpr uint64_t base = 1780000000000000017ULL;
+  LidarFrameAccumulator accumulator;
+  std::vector<LidarPointBatch> frames;
+  std::vector<uint64_t> expected;
+  uint64_t raw = base;
+  for (uint32_t packet = 0; packet < 400u; ++packet) {
+    // Dropped packets and clock steps must stay as gaps, including across
+    // empty 100 ms windows. Values also cover the 0831 recording anomalies.
+    if (packet == 16u) raw += 480000u;
+    if (packet == 128u) raw += 660000u;
+    if (packet == 200u) raw += 323040000u;
+    LidarPointBatch batch;
+    batch.batch_id = packet;
+    batch.timestamp_ns = raw;
+    batch.timestamp_raw = raw;
+    batch.time_interval_100ns = 4750u;
+    for (uint32_t point = 0; point < 96u; ++point) {
+      LidarPoint value;
+      value.x_m = static_cast<float>(expected.size());
+      batch.points.push_back(value);
+      expected.push_back(raw + point * 5000u);
+    }
+    for (auto& frame : accumulator.append(std::move(batch)))
+      frames.push_back(std::move(frame));
+    raw += 480000u;
+  }
+  require(frames.size() >= 2u, "gap fixture did not flush multiple ROS frames");
+  size_t index = 0;
+  for (const auto& frame : frames) {
+    require(!frame.points.empty(), "empty ROS frame fabricated during a gap");
+    require(frame.points.front().offset_time_ns == 0u,
+            "frame header is not the first actual point time");
+    for (const auto& point : frame.points) {
+      require(point.x_m == static_cast<float>(index),
+              "ROS aggregation dropped or reordered source points");
+      require(frame.timestamp_ns + point.offset_time_ns == expected[index],
+              "ROS aggregation smeared a gap or changed original point time");
+      require(point.offset_time_ns < LidarFrameAccumulator::kFramePeriodNs,
+              "offset_time exceeds its 100 ms window");
+      ++index;
+    }
+  }
+  require(index + accumulator.pendingPointCount() == expected.size(),
+          "ROS aggregation lost points at discontinuous window boundaries");
+}
+
 }  // namespace
 
 int main() {
+  testPacketTimeGapsSurviveRosFrameAggregation();
   constexpr uint64_t kBaseTimestampNs = 1780000000000000000ULL;
   constexpr uint64_t kSourceBatchPeriodNs = 5760000ULL;
 

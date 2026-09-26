@@ -1,0 +1,9 @@
+bool confirm
+string command
+uint32 expected_cors_generation
+bool allow_gga
+uint32 timeout_ms
+---
+bool success
+string message
+TimeSyncRtkStatus status

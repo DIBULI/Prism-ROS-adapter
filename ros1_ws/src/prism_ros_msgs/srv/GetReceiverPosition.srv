@@ -1,0 +1,5 @@
+bool rtk
+---
+bool success
+string message
+ReceiverPosition status

@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <vector>
+#include <string>
 
 namespace prism_ros_adapter {
 
@@ -35,78 +36,6 @@ struct GnssTimingStatusState {
   uint32_t utc_ms_of_day{};
 };
 
-struct RtkCorrectionStatusState {
-  uint16_t version{};
-  uint32_t flags{};
-  int32_t error_code{};
-  bool running{};
-  bool rover_connected{};
-  bool base_connected{};
-  bool host_active{};
-  bool base_position_valid{};
-  bool ntrip_configured{};
-  bool ntrip_connected{};
-  uint16_t base_source{};
-  uint16_t correction_format{};
-  uint16_t solution{};
-  uint64_t host_correction_bytes{};
-  uint64_t rover_bytes{};
-  uint64_t base_bytes{};
-  uint64_t base_rtcm_messages{};
-  uint64_t base_observation_epochs{};
-  uint64_t solution_count{};
-  uint64_t fix_count{};
-  uint64_t float_count{};
-  uint64_t decoder_errors{};
-};
-
-struct RtkNavigationStatusState {
-  uint16_t version{};
-  uint32_t flags{};
-  int32_t error_code{};
-  bool solution_valid{};
-  bool base_position_valid{};
-  bool confidence_valid{};
-  bool position_jump_valid{};
-  uint16_t base_source{};
-  uint16_t solution{};
-  uint16_t confidence{};
-  uint16_t satellites{};
-  uint16_t confidence_score{};
-  uint32_t confidence_reasons{};
-  int32_t base_station_id{};
-  uint32_t consecutive_fix_epochs{};
-  uint32_t consecutive_float_epochs{};
-  int64_t solution_epoch_us{};
-  double latitude_deg{};
-  double longitude_deg{};
-  double ellipsoidal_height_m{};
-  double east_std_m{};
-  double north_std_m{};
-  double up_std_m{};
-  double differential_age_s{};
-  double ambiguity_ratio{};
-  double position_jump_m{};
-  uint64_t solution_count{};
-  uint64_t fix_count{};
-  uint64_t float_count{};
-  uint64_t rover_observation_epochs{};
-  uint64_t base_observation_epochs{};
-  uint64_t decoder_errors{};
-  bool smoothed_position_valid{};
-  uint16_t smoothed_solution{};
-  uint32_t smoothing_flags{};
-  int64_t smoothed_solution_epoch_us{};
-  double smoothed_latitude_deg{};
-  double smoothed_longitude_deg{};
-  double smoothed_ellipsoidal_height_m{};
-  double smoothed_east_std_m{};
-  double smoothed_north_std_m{};
-  double smoothed_up_std_m{};
-  uint64_t smoothing_reset_count{};
-  uint64_t smoothing_gated_epoch_count{};
-};
-
 struct TimeSyncPortStatusState {
   uint32_t mode{};
   bool persisted{};
@@ -132,4 +61,124 @@ struct RtcmData {
   uint64_t adapter_dropped_chunks = 0;
   std::vector<uint8_t> data;
 };
+struct GnssReceptionStatusState {
+  bool sensor_board_online{};
+  bool reception_available{};
+  bool raw_data_seen{};
+  bool raw_data_fresh{};
+  bool nmea_sentence_seen{};
+  bool nmea_sentence_fresh{};
+  uint32_t raw_age_ms{};
+  uint32_t nmea_sentence_age_ms{};
+  uint64_t raw_byte_count{};
+  uint64_t nmea_sentence_count{};
+  uint64_t nmea_rejected_count{};
+  uint64_t uart_frame_error_count{};
+  uint64_t fifo_overflow_count{};
+};
+
+struct TimeSyncRtkStatusState {
+  bool linked{};
+  bool device_status_fresh{};
+  bool control_status_fresh{};
+  bool configuration_saved{};
+  bool configuration_applied{};
+  int32_t error_code{};
+  uint32_t age_ms{};
+  uint32_t status_age_ms{};
+  uint32_t saved_generation{};
+  uint32_t applied_generation{};
+  uint32_t control_generation{};
+  uint8_t control_state{};
+  uint8_t control_error{};
+  uint8_t device_flags{};
+  uint8_t sim{};
+  uint8_t registration{};
+  uint8_t fix{};
+  uint8_t satellites{};
+  uint8_t rtcm_format{};
+  uint32_t uptime_ms{};
+  uint32_t gnss_age_ms{};
+  uint32_t rtcm_age_ms{};
+  uint32_t network_bytes{};
+  uint32_t transmitted_bytes{};
+  uint32_t rtcm_frames{};
+  uint32_t rtcm_errors{};
+  uint32_t upstream_drops{};
+  uint32_t current_cors_generation{};
+  uint64_t gnss_drained_bytes{};
+  uint64_t rtcm_drained_bytes{};
+  uint64_t lost_bytes{};
+};
+
+struct TimeSyncRtkVersionsState {
+  bool linked{};
+  uint32_t age_ms{};
+  bool application_valid{};
+  bool application_diagnostic{};
+  uint16_t application_major{};
+  uint16_t application_minor{};
+  uint16_t application_patch{};
+  bool bootloader_valid{};
+  bool bootloader_diagnostic{};
+  uint16_t bootloader_major{};
+  uint16_t bootloader_minor{};
+  uint16_t bootloader_patch{};
+};
+
+struct TimeSyncCorsStatusState {
+  bool linked{};
+  bool device_status_fresh{};
+  bool control_status_fresh{};
+  bool configuration_saved{};
+  bool configuration_applied{};
+  uint32_t saved_generation{};
+  uint32_t applied_generation{};
+  bool enabled{};
+  bool credentials_present{};
+  std::string ip{};
+  uint16_t port{};
+  std::string mountpoint{};
+  std::string username{};
+};
+
+struct GnssObservationsState {
+  uint64_t cursor{};
+  uint64_t device_monotonic_ms{};
+  uint64_t session{};
+  bool gap{};
+  std::vector<uint64_t> sequences{};
+  std::vector<uint64_t> received_ms{};
+  std::vector<std::string> sentences{};
+};
+
+struct ReceiverPositionState {
+  bool valid{};
+  bool height_valid{};
+  bool covariance_valid{};
+  bool timestamp_valid{};
+  std::string source{};
+  std::string solution{};
+  std::string time_system{};
+  std::string epoch{};
+  uint8_t quality{};
+  uint16_t satellites{};
+  uint32_t age_ms{};
+  uint64_t sequence{};
+  uint64_t session{};
+  uint64_t epoch_us{};
+  double latitude_deg{};
+  double longitude_deg{};
+  double ellipsoidal_height_m{};
+  double east_std_m{};
+  double north_std_m{};
+  double up_std_m{};
+};
+
+struct CorsConfiguration {
+  bool enabled = false;
+  std::string ip, mountpoint, username, password;
+  uint16_t port = 0;
+};
+
 }  // namespace prism_ros_adapter

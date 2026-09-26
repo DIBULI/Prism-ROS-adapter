@@ -15,6 +15,7 @@ namespace prism_ros_adapter {
 enum class LidarModel {
   Mid360,
   Mid360S,
+  Xt32,
 };
 
 enum class LogLevel {
@@ -25,7 +26,10 @@ enum class LogLevel {
 
 struct DriverConfig {
   std::string device_serial;
+  std::string rklocal_socket = "/run/prism/stream.sock";
   bool enable_navigation = true;
+  // -1 leaves receiver GPST-to-UTC conversion unknown; never guess leap seconds.
+  int32_t gps_utc_leap_seconds = -1;
   bool enable_rover_rtcm = false;
   bool enable_camera = true;
   bool enable_board_imu = true;
@@ -48,6 +52,7 @@ enum class CameraExposureMode {
 };
 
 struct ExposureState {
+  bool unified_automatic = false;
   uint8_t automatic_camera_mask = 0;
   uint8_t target_brightness = 0;
   std::array<uint32_t, 4> manual_exposure_time_us{};
@@ -209,6 +214,8 @@ struct LidarPoint {
   uint8_t reflectivity = 0;
   uint8_t tag = 0;
   uint32_t offset_time_ns = 0;
+  uint16_t ring = 0;
+  uint8_t line = 0, line_valid = 0, return_id = 0, confidence = 0;
 };
 
 struct LidarPointBatch {
@@ -216,6 +223,7 @@ struct LidarPointBatch {
   uint64_t timestamp_ns = 0;
   uint64_t timestamp_raw = 0;
   uint32_t time_interval_100ns = 0;
+  bool explicit_point_times = false;
   std::vector<LidarPoint> points;
 };
 
@@ -250,8 +258,10 @@ struct DriverStatus {
 
 struct DriverCallbacks {
   std::function<void(const GnssTimingStatusState&)> gnss;
-  std::function<void(const RtkNavigationStatusState&)> rtk_navigation;
-  std::function<void(const RtkCorrectionStatusState&)> rtk_status;
+  std::function<void(const ReceiverPositionState&)> receiver;
+  std::function<void(const GnssObservationsState&)> observations;
+  std::function<void(const GnssReceptionStatusState&)> reception;
+  std::function<void(const TimeSyncRtkStatusState&)> rtk_module;
   std::function<void(const RtcmData&)> rover_rtcm;
   std::function<void(const CameraFrameSet&)> camera;
   std::function<void(const BoardImuSample&)> board_imu;
@@ -285,11 +295,17 @@ class Driver {
                                         uint32_t max_gain_x1024);
   SystemTimeSyncState synchronizeSystemTime();
   GnssTimingStatusState getGnssTiming();
-  RtkNavigationStatusState getRtkNavigation();
-  RtkCorrectionStatusState getRtkStatus();
+  GnssReceptionStatusState getGnssReception();
+  TimeSyncRtkStatusState getRtkModuleStatus();
+  TimeSyncRtkVersionsState getRtkModuleVersions();
+  TimeSyncCorsStatusState getCorsConfiguration();
+  TimeSyncCorsStatusState setCorsConfiguration(CorsConfiguration configuration);
+  TimeSyncRtkStatusState controlRtk(std::string command, uint32_t generation,
+                                   bool allow_gga, uint32_t timeout_ms);
+  ReceiverPositionState getReceiverPosition(bool rtk);
   TimeSyncPortStatusState getTimeSyncPort();
-  RtkCorrectionStatusState controlRtkCorrections(bool enable);
-  RtkCorrectionStatusState sendRtkCorrections(std::vector<uint8_t> data);
+  TimeSyncPortStatusState setTimeSyncPort(uint32_t mode);
+  ExposureState setUnifiedExposure(bool enabled);
   RoverRtcmStatusState setRoverRtcm(bool enable);
   DeviceState getDeviceInfo();
   DeviceConfigurationState getDeviceConfiguration();

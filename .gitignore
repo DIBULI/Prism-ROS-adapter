@@ -9,3 +9,8 @@ build-common/
 .DS_Store
 ros1_ws/build-*/
 ros1_ws/devel-*/
+
+__pycache__/
+*.pyc
+build-*/
+ros1_ws/src/CMakeLists.txt

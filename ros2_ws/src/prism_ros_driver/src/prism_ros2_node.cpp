@@ -1,15 +1,25 @@
+#include <prism_ros_msgs/msg/gnss_reception_status.hpp>
+#include <prism_ros_msgs/msg/time_sync_rtk_status.hpp>
+#include <prism_ros_msgs/msg/time_sync_rtk_versions.hpp>
+#include <prism_ros_msgs/msg/time_sync_cors_status.hpp>
+#include <prism_ros_msgs/msg/gnss_observations.hpp>
+#include <prism_ros_msgs/msg/receiver_position.hpp>
+#include <prism_ros_msgs/srv/get_gnss_reception.hpp>
+#include <prism_ros_msgs/srv/get_rtk_module_status.hpp>
+#include <prism_ros_msgs/srv/get_rtk_module_versions.hpp>
+#include <prism_ros_msgs/srv/get_cors_configuration.hpp>
+#include <prism_ros_msgs/srv/set_cors_configuration.hpp>
+#include <prism_ros_msgs/srv/control_rtk.hpp>
+#include <prism_ros_msgs/srv/set_time_sync_port.hpp>
+#include <prism_ros_msgs/srv/get_receiver_position.hpp>
+#include <prism_ros_msgs/srv/set_unified_exposure.hpp>
 #include "prism_ros_adapter/driver.hpp"
 #include "prism_ros_adapter/navigation_conversion.hpp"
 #include "prism_ros_adapter/navigation_fix.hpp"
 #include <prism_ros_msgs/msg/gnss_timing_status.hpp>
-#include <prism_ros_msgs/msg/rtk_correction_status.hpp>
-#include <prism_ros_msgs/msg/rtk_navigation_status.hpp>
 #include <prism_ros_msgs/msg/rtcm_data.hpp>
 #include <prism_ros_msgs/srv/get_gnss_timing.hpp>
-#include <prism_ros_msgs/srv/get_rtk_status.hpp>
-#include <prism_ros_msgs/srv/get_rtk_navigation.hpp>
 #include <prism_ros_msgs/srv/get_time_sync_port.hpp>
-#include <prism_ros_msgs/srv/control_rtk_corrections.hpp>
 #include <prism_ros_msgs/srv/set_rover_rtcm.hpp>
 #include <sensor_msgs/msg/nav_sat_fix.hpp>
 
@@ -75,6 +85,7 @@ diagnostic_msgs::msg::KeyValue keyValue(const std::string& key,
 template <typename Response>
 void fillExposure(Response& response,
                   const prism_ros_adapter::ExposureState& state) {
+  response.unified_automatic = state.unified_automatic;
   response.automatic_camera_mask = state.automatic_camera_mask;
   response.target_brightness = state.target_brightness;
   std::copy(state.manual_exposure_time_us.begin(),
@@ -226,8 +237,16 @@ class PrismRos2Node : public rclcpp::Node {
   PrismRos2Node() : rclcpp::Node("prism_ros_driver") {
     prism_ros_adapter::DriverConfig config;
     config.enable_navigation = declare_parameter<bool>("navigation_enabled", true);
+    config.gps_utc_leap_seconds = declare_parameter<int>("gps_utc_leap_seconds", -1);
     config.enable_rover_rtcm = declare_parameter<bool>("rover_rtcm_enabled", false);
     config.device_serial = declare_parameter<std::string>("device_serial", "");
+    config.rklocal_socket = declare_parameter<std::string>(
+        "rklocal_socket", "/run/prism/stream.sock");
+#ifdef PRISM_ROS_RKLOCAL
+    RCLCPP_INFO(get_logger(), "SDK transport: RK-local (ARM64 Unix socket)");
+#else
+    RCLCPP_INFO(get_logger(), "SDK transport: USB");
+#endif
     config.enable_camera = declare_parameter<bool>("camera_enabled", true);
     config.enable_board_imu =
         declare_parameter<bool>("board_imu_enabled", true);
@@ -244,10 +263,12 @@ class PrismRos2Node : public rclcpp::Node {
         declare_parameter<std::string>("lidar_model", "mid360");
     if (lidar_model == "mid360") {
       config.lidar_model = prism_ros_adapter::LidarModel::Mid360;
+    } else if (lidar_model == "xt32") {
+      config.lidar_model = prism_ros_adapter::LidarModel::Xt32;
     } else if (lidar_model == "mid360s") {
       config.lidar_model = prism_ros_adapter::LidarModel::Mid360S;
     } else {
-      throw std::invalid_argument("lidar_model must be mid360 or mid360s");
+      throw std::invalid_argument("lidar_model must be mid360, mid360s or xt32");
     }
     config.lidar_network_apply_on_start =
         declare_parameter<bool>("lidar_network_apply_on_start", false);
@@ -303,11 +324,21 @@ class PrismRos2Node : public rclcpp::Node {
     createNavigation();
     prism_ros_adapter::DriverCallbacks callbacks;
     callbacks.gnss = [this](const auto& value) { publishGnss(value); };
-    callbacks.rtk_navigation = [this](const auto& value) { publishRtkNavigation(value); };
-    callbacks.rtk_status = [this](const auto& value) {
-      prism_ros_msgs::msg::RtkCorrectionStatus message;
-      prism_ros_adapter::copyRtkCorrectionStatus(message, value);
-      rtk_status_publisher_->publish(message);
+    callbacks.receiver = [this](const auto& value) { publishReceiver(value); };
+    callbacks.reception = [this](const auto& value) {
+      prism_ros_msgs::msg::GnssReceptionStatus message;
+      prism_ros_adapter::copyGnssReceptionStatus(message, value);
+      reception_publisher_->publish(message);
+    };
+    callbacks.rtk_module = [this](const auto& value) {
+      prism_ros_msgs::msg::TimeSyncRtkStatus message;
+      prism_ros_adapter::copyTimeSyncRtkStatus(message, value);
+      rtk_module_publisher_->publish(message);
+    };
+    callbacks.observations = [this](const auto& value) {
+      prism_ros_msgs::msg::GnssObservations message;
+      prism_ros_adapter::copyGnssObservations(message, value);
+      observations_publisher_->publish(message);
     };
     callbacks.rover_rtcm = [this](const auto& value) { publishRoverRtcm(value); };
     callbacks.camera = [this](const auto& value) { publishCamera(value); };
@@ -656,65 +687,36 @@ class PrismRos2Node : public rclcpp::Node {
   }
 
   void createNavigation() {
-    gnss_publisher_ = create_publisher<prism_ros_msgs::msg::GnssTimingStatus>(topic(topic_prefix_, "gnss/timing"), rclcpp::QoS(10).reliable());
-    rtk_status_publisher_ = create_publisher<prism_ros_msgs::msg::RtkCorrectionStatus>(topic(topic_prefix_, "rtk/status"), rclcpp::QoS(10).reliable());
-    rtk_navigation_publisher_ = create_publisher<prism_ros_msgs::msg::RtkNavigationStatus>(topic(topic_prefix_, "rtk/navigation"), rclcpp::QoS(10).reliable());
+    gnss_publisher_ = create_publisher<prism_ros_msgs::msg::GnssTimingStatus>(topic(topic_prefix_, "gnss/timing"), rclcpp::QoS(32).reliable());
+    reception_publisher_ = create_publisher<prism_ros_msgs::msg::GnssReceptionStatus>(topic(topic_prefix_, "gnss/reception"), rclcpp::QoS(32).reliable());
+    rtk_module_publisher_ = create_publisher<prism_ros_msgs::msg::TimeSyncRtkStatus>(topic(topic_prefix_, "rtk/status"), rclcpp::QoS(32).reliable());
+    observations_publisher_ = create_publisher<prism_ros_msgs::msg::GnssObservations>(topic(topic_prefix_, "gnss/observations"), rclcpp::QoS(32).reliable());
+    gnss_receiver_publisher_ = create_publisher<prism_ros_msgs::msg::ReceiverPosition>(topic(topic_prefix_, "gnss/receiver"), rclcpp::QoS(32).reliable());
+    rtk_receiver_publisher_ = create_publisher<prism_ros_msgs::msg::ReceiverPosition>(topic(topic_prefix_, "rtk/receiver"), rclcpp::QoS(32).reliable());
     rover_rtcm_publisher_ = create_publisher<prism_ros_msgs::msg::RtcmData>(topic(topic_prefix_, "gnss/rover_rtcm"), rclcpp::QoS(1024).reliable());
     gnss_fix_publisher_ = create_publisher<sensor_msgs::msg::NavSatFix>(topic(topic_prefix_, "gnss/fix"), rclcpp::QoS(10).reliable());
-    rtk_raw_fix_publisher_ = create_publisher<sensor_msgs::msg::NavSatFix>(topic(topic_prefix_, "rtk/fix_raw"), rclcpp::QoS(10).reliable());
-    rtk_smoothed_fix_publisher_ = create_publisher<sensor_msgs::msg::NavSatFix>(topic(topic_prefix_, "rtk/fix_smoothed"), rclcpp::QoS(10).reliable());
-    corrections_subscriber_ = create_subscription<prism_ros_msgs::msg::RtcmData>(
-        topic(topic_prefix_, "rtk/corrections"), rclcpp::QoS(64).reliable(),
-        [this](const prism_ros_msgs::msg::RtcmData::SharedPtr request) { receiveCorrections(request); });
+    rtk_fix_publisher_ = create_publisher<sensor_msgs::msg::NavSatFix>(topic(topic_prefix_, "rtk/fix"), rclcpp::QoS(10).reliable());
   }
 
   void createNavigationServices() {
     navigation_services_.push_back(create_service<prism_ros_msgs::srv::GetGnssTiming>(
         topic(topic_prefix_, "gnss/get_timing"),
-        [this](const std::shared_ptr<prism_ros_msgs::srv::GetGnssTiming::Request> ,
+        [this](const std::shared_ptr<prism_ros_msgs::srv::GetGnssTiming::Request> request,
                std::shared_ptr<prism_ros_msgs::srv::GetGnssTiming::Response> response) {
+          (void)request;
           try {
             prism_ros_adapter::copyGnssTimingStatus(response->status, driver_->getGnssTiming());
             response->success = true;
             response->message = "ok";
           } catch (const std::exception& error) { failService(*response, error); }
         }));
-    navigation_services_.push_back(create_service<prism_ros_msgs::srv::GetRtkStatus>(
-        topic(topic_prefix_, "rtk/get_status"),
-        [this](const std::shared_ptr<prism_ros_msgs::srv::GetRtkStatus::Request> ,
-               std::shared_ptr<prism_ros_msgs::srv::GetRtkStatus::Response> response) {
-          try {
-            prism_ros_adapter::copyRtkCorrectionStatus(response->status, driver_->getRtkStatus());
-            response->success = true;
-            response->message = "ok";
-          } catch (const std::exception& error) { failService(*response, error); }
-        }));
-    navigation_services_.push_back(create_service<prism_ros_msgs::srv::GetRtkNavigation>(
-        topic(topic_prefix_, "rtk/get_navigation"),
-        [this](const std::shared_ptr<prism_ros_msgs::srv::GetRtkNavigation::Request> ,
-               std::shared_ptr<prism_ros_msgs::srv::GetRtkNavigation::Response> response) {
-          try {
-            prism_ros_adapter::copyRtkNavigationStatus(response->status, driver_->getRtkNavigation());
-            response->success = true;
-            response->message = "ok";
-          } catch (const std::exception& error) { failService(*response, error); }
-        }));
     navigation_services_.push_back(create_service<prism_ros_msgs::srv::GetTimeSyncPort>(
         topic(topic_prefix_, "system/get_timesync_port"),
-        [this](const std::shared_ptr<prism_ros_msgs::srv::GetTimeSyncPort::Request> ,
+        [this](const std::shared_ptr<prism_ros_msgs::srv::GetTimeSyncPort::Request> request,
                std::shared_ptr<prism_ros_msgs::srv::GetTimeSyncPort::Response> response) {
+          (void)request;
           try {
             prism_ros_adapter::copyTimeSyncPortStatus(response->status, driver_->getTimeSyncPort());
-            response->success = true;
-            response->message = "ok";
-          } catch (const std::exception& error) { failService(*response, error); }
-        }));
-    navigation_services_.push_back(create_service<prism_ros_msgs::srv::ControlRtkCorrections>(
-        topic(topic_prefix_, "rtk/control_corrections"),
-        [this](const std::shared_ptr<prism_ros_msgs::srv::ControlRtkCorrections::Request> request,
-               std::shared_ptr<prism_ros_msgs::srv::ControlRtkCorrections::Response> response) {
-          try {
-            prism_ros_adapter::copyRtkCorrectionStatus(response->status, driver_->controlRtkCorrections(request->enable));
             response->success = true;
             response->message = "ok";
           } catch (const std::exception& error) { failService(*response, error); }
@@ -723,49 +725,135 @@ class PrismRos2Node : public rclcpp::Node {
         topic(topic_prefix_, "gnss/set_rover_rtcm"),
         [this](const std::shared_ptr<prism_ros_msgs::srv::SetRoverRtcm::Request> request,
                std::shared_ptr<prism_ros_msgs::srv::SetRoverRtcm::Response> response) {
+          (void)request;
           try {
             prism_ros_adapter::copyRoverRtcmStatus(response->status, driver_->setRoverRtcm(request->enable));
             response->success = true;
             response->message = "ok";
           } catch (const std::exception& error) { failService(*response, error); }
         }));
-  }
-
-  void receiveCorrections(const prism_ros_msgs::msg::RtcmData::SharedPtr request) {
-    try {
-      const auto status = driver_->sendRtkCorrections(request->data);
-      prism_ros_msgs::msg::RtkCorrectionStatus message;
-      prism_ros_adapter::copyRtkCorrectionStatus(message, status);
-      rtk_status_publisher_->publish(message);
-    } catch (const std::exception& error) {
-      RCLCPP_ERROR(get_logger(), "RTCM input rejected: %s", error.what());
-    }
+    navigation_services_.push_back(create_service<prism_ros_msgs::srv::GetGnssReception>(
+        topic(topic_prefix_, "gnss/get_reception"),
+        [this](const std::shared_ptr<prism_ros_msgs::srv::GetGnssReception::Request> request,
+               std::shared_ptr<prism_ros_msgs::srv::GetGnssReception::Response> response) {
+          (void)request;
+          try {
+            prism_ros_adapter::copyGnssReceptionStatus(response->status, driver_->getGnssReception());
+            response->success = true;
+            response->message = "ok";
+          } catch (const std::exception& error) { failService(*response, error); }
+        }));
+    navigation_services_.push_back(create_service<prism_ros_msgs::srv::GetRtkModuleStatus>(
+        topic(topic_prefix_, "rtk/get_status"),
+        [this](const std::shared_ptr<prism_ros_msgs::srv::GetRtkModuleStatus::Request> request,
+               std::shared_ptr<prism_ros_msgs::srv::GetRtkModuleStatus::Response> response) {
+          (void)request;
+          try {
+            prism_ros_adapter::copyTimeSyncRtkStatus(response->status, driver_->getRtkModuleStatus());
+            response->success = true;
+            response->message = "ok";
+          } catch (const std::exception& error) { failService(*response, error); }
+        }));
+    navigation_services_.push_back(create_service<prism_ros_msgs::srv::GetRtkModuleVersions>(
+        topic(topic_prefix_, "rtk/get_versions"),
+        [this](const std::shared_ptr<prism_ros_msgs::srv::GetRtkModuleVersions::Request> request,
+               std::shared_ptr<prism_ros_msgs::srv::GetRtkModuleVersions::Response> response) {
+          (void)request;
+          try {
+            prism_ros_adapter::copyTimeSyncRtkVersions(response->status, driver_->getRtkModuleVersions());
+            response->success = true;
+            response->message = "ok";
+          } catch (const std::exception& error) { failService(*response, error); }
+        }));
+    navigation_services_.push_back(create_service<prism_ros_msgs::srv::GetCorsConfiguration>(
+        topic(topic_prefix_, "rtk/get_cors"),
+        [this](const std::shared_ptr<prism_ros_msgs::srv::GetCorsConfiguration::Request> request,
+               std::shared_ptr<prism_ros_msgs::srv::GetCorsConfiguration::Response> response) {
+          (void)request;
+          try {
+            prism_ros_adapter::copyTimeSyncCorsStatus(response->status, driver_->getCorsConfiguration());
+            response->success = true;
+            response->message = "ok";
+          } catch (const std::exception& error) { failService(*response, error); }
+        }));
+    navigation_services_.push_back(create_service<prism_ros_msgs::srv::SetCorsConfiguration>(
+        topic(topic_prefix_, "rtk/set_cors"),
+        [this](const std::shared_ptr<prism_ros_msgs::srv::SetCorsConfiguration::Request> request,
+               std::shared_ptr<prism_ros_msgs::srv::SetCorsConfiguration::Response> response) {
+          (void)request;
+          try {
+            if (!request->confirm) throw std::invalid_argument("set confirm=true for this operation");
+            prism_ros_adapter::copyTimeSyncCorsStatus(response->status, driver_->setCorsConfiguration({static_cast<bool>(request->enabled), request->ip, request->mountpoint, request->username, request->password, request->port}));
+            response->success = true;
+            response->message = "ok";
+          } catch (const std::exception& error) { failService(*response, error); }
+        }));
+    navigation_services_.push_back(create_service<prism_ros_msgs::srv::ControlRtk>(
+        topic(topic_prefix_, "rtk/control"),
+        [this](const std::shared_ptr<prism_ros_msgs::srv::ControlRtk::Request> request,
+               std::shared_ptr<prism_ros_msgs::srv::ControlRtk::Response> response) {
+          (void)request;
+          try {
+            if (!request->confirm) throw std::invalid_argument("set confirm=true for this operation");
+            prism_ros_adapter::copyTimeSyncRtkStatus(response->status, driver_->controlRtk(request->command, request->expected_cors_generation, request->allow_gga, request->timeout_ms));
+            response->success = true;
+            response->message = "ok";
+          } catch (const std::exception& error) { failService(*response, error); }
+        }));
+    navigation_services_.push_back(create_service<prism_ros_msgs::srv::SetTimeSyncPort>(
+        topic(topic_prefix_, "system/set_timesync_port"),
+        [this](const std::shared_ptr<prism_ros_msgs::srv::SetTimeSyncPort::Request> request,
+               std::shared_ptr<prism_ros_msgs::srv::SetTimeSyncPort::Response> response) {
+          (void)request;
+          try {
+            if (!request->confirm) throw std::invalid_argument("set confirm=true for this operation");
+            prism_ros_adapter::copyTimeSyncPortStatus(response->status, driver_->setTimeSyncPort(request->mode));
+            response->success = true;
+            response->message = "ok";
+          } catch (const std::exception& error) { failService(*response, error); }
+        }));
+    navigation_services_.push_back(create_service<prism_ros_msgs::srv::GetReceiverPosition>(
+        topic(topic_prefix_, "rtk/get_receiver_position"),
+        [this](const std::shared_ptr<prism_ros_msgs::srv::GetReceiverPosition::Request> request,
+               std::shared_ptr<prism_ros_msgs::srv::GetReceiverPosition::Response> response) {
+          (void)request;
+          try {
+            prism_ros_adapter::copyReceiverPosition(response->status, driver_->getReceiverPosition(request->rtk));
+            response->success = true;
+            response->message = "ok";
+          } catch (const std::exception& error) { failService(*response, error); }
+        }));
+    navigation_services_.push_back(create_service<prism_ros_msgs::srv::SetUnifiedExposure>(
+        topic(topic_prefix_, "camera/set_unified_exposure"),
+        [this](const std::shared_ptr<prism_ros_msgs::srv::SetUnifiedExposure::Request> request,
+               std::shared_ptr<prism_ros_msgs::srv::SetUnifiedExposure::Response> response) {
+          (void)request;
+          try {
+            response->unified_automatic = driver_->setUnifiedExposure(request->enabled).unified_automatic;
+            response->success = true;
+            response->message = "ok";
+          } catch (const std::exception& error) { failService(*response, error); }
+        }));
   }
 
   void publishGnss(const prism_ros_adapter::GnssTimingStatusState& status) {
     prism_ros_msgs::msg::GnssTimingStatus message;
     prism_ros_adapter::copyGnssTimingStatus(message, status);
     gnss_publisher_->publish(message);
-    sensor_msgs::msg::NavSatFix fix;
-    prism_ros_adapter::fillGnssFix(fix, status);
-    fix.header.frame_id = "prism_gnss";
-    fix.header.stamp = rosTime(prism_ros_adapter::gnssEpochUs(status) * 1000ull);
-    gnss_fix_publisher_->publish(fix);
   }
 
-  void publishRtkNavigation(const prism_ros_adapter::RtkNavigationStatusState& status) {
-    prism_ros_msgs::msg::RtkNavigationStatus message;
-    prism_ros_adapter::copyRtkNavigationStatus(message, status);
-    rtk_navigation_publisher_->publish(message);
-    for (const bool smoothed : {false, true}) {
-      sensor_msgs::msg::NavSatFix fix;
-      prism_ros_adapter::fillRtkFix(fix, status, smoothed);
-      const auto epoch_us = smoothed ? status.smoothed_solution_epoch_us : status.solution_epoch_us;
-      fix.header.stamp = rosTime(epoch_us > 0 ? static_cast<uint64_t>(epoch_us) * 1000ull : 0);
-      fix.header.frame_id = "prism_gnss";
-      if (smoothed) rtk_smoothed_fix_publisher_->publish(fix);
-      else rtk_raw_fix_publisher_->publish(fix);
-    }
+  void publishReceiver(const prism_ros_adapter::ReceiverPositionState& status) {
+    prism_ros_msgs::msg::ReceiverPosition message;
+    prism_ros_adapter::copyReceiverPosition(message, status);
+    const bool rtk = status.source == "ADRNAV";
+    if (rtk) rtk_receiver_publisher_->publish(message);
+    else gnss_receiver_publisher_->publish(message);
+    sensor_msgs::msg::NavSatFix fix;
+    prism_ros_adapter::fillReceiverFix(fix, status);
+    fix.header.frame_id = "prism_gnss";
+    fix.header.stamp = rosTime(status.timestamp_valid ? status.epoch_us * 1000ull : 0);
+    if (rtk) rtk_fix_publisher_->publish(fix);
+    else gnss_fix_publisher_->publish(fix);
   }
 
   void publishRoverRtcm(const prism_ros_adapter::RtcmData& data) {
@@ -826,19 +914,25 @@ class PrismRos2Node : public rclcpp::Node {
     message.width = static_cast<uint32_t>(batch.points.size());
     message.is_bigendian = false;
     message.is_dense = true;
-    message.point_step = 20;
+    message.point_step = 28;
     message.row_step = message.point_step * message.width;
-    message.fields.resize(6);
-    const std::array<std::string, 6> names{
-        "x", "y", "z", "intensity", "tag", "offset_time"};
-    const std::array<uint32_t, 6> offsets{0, 4, 8, 12, 13, 16};
-    const std::array<uint8_t, 6> datatypes{
+    message.fields.resize(11);
+    const std::array<std::string, 11> names{
+        "x", "y", "z", "intensity", "tag", "offset_time",
+        "line", "line_valid", "ring", "return_id", "confidence"};
+    const std::array<uint32_t, 11> offsets{0, 4, 8, 12, 13, 16, 14, 15, 20, 22, 23};
+    const std::array<uint8_t, 11> datatypes{
         sensor_msgs::msg::PointField::FLOAT32,
         sensor_msgs::msg::PointField::FLOAT32,
         sensor_msgs::msg::PointField::FLOAT32,
         sensor_msgs::msg::PointField::UINT8,
         sensor_msgs::msg::PointField::UINT8,
-        sensor_msgs::msg::PointField::UINT32};
+        sensor_msgs::msg::PointField::UINT32,
+        sensor_msgs::msg::PointField::UINT8,
+        sensor_msgs::msg::PointField::UINT8,
+        sensor_msgs::msg::PointField::UINT16,
+        sensor_msgs::msg::PointField::UINT8,
+        sensor_msgs::msg::PointField::UINT8};
     for (size_t i = 0; i < message.fields.size(); ++i) {
       message.fields[i].name = names[i];
       message.fields[i].offset = offsets[i];
@@ -854,6 +948,11 @@ class PrismRos2Node : public rclcpp::Node {
       std::memcpy(output + 8, &point.z_m, sizeof(float));
       output[12] = point.reflectivity;
       output[13] = point.tag;
+      output[14] = point.line;
+      output[15] = point.line_valid;
+      std::memcpy(output + 20, &point.ring, sizeof(uint16_t));
+      output[22] = point.return_id;
+      output[23] = point.confidence;
       std::memcpy(output + 16, &point.offset_time_ns, sizeof(uint32_t));
     }
     lidar_publisher_->publish(message);
@@ -877,7 +976,7 @@ class PrismRos2Node : public rclcpp::Node {
     diagnostic_msgs::msg::DiagnosticArray array;
     array.header.stamp = now();
     diagnostic_msgs::msg::DiagnosticStatus diagnostic;
-    diagnostic.name = "Prism USB adapter";
+    diagnostic.name = "Prism ROS adapter";
     diagnostic.hardware_id = status.product_serial;
     diagnostic.level = status.error.empty()
                            ? diagnostic_msgs::msg::DiagnosticStatus::OK
@@ -964,13 +1063,14 @@ class PrismRos2Node : public rclcpp::Node {
   rclcpp::Service<prism_ros_msgs::srv::SetWifiHotspot>::SharedPtr
       set_wifi_hotspot_service_;
   rclcpp::Publisher<prism_ros_msgs::msg::GnssTimingStatus>::SharedPtr gnss_publisher_;
-  rclcpp::Publisher<prism_ros_msgs::msg::RtkCorrectionStatus>::SharedPtr rtk_status_publisher_;
-  rclcpp::Publisher<prism_ros_msgs::msg::RtkNavigationStatus>::SharedPtr rtk_navigation_publisher_;
+  rclcpp::Publisher<prism_ros_msgs::msg::GnssReceptionStatus>::SharedPtr reception_publisher_;
+  rclcpp::Publisher<prism_ros_msgs::msg::TimeSyncRtkStatus>::SharedPtr rtk_module_publisher_;
+  rclcpp::Publisher<prism_ros_msgs::msg::GnssObservations>::SharedPtr observations_publisher_;
+  rclcpp::Publisher<prism_ros_msgs::msg::ReceiverPosition>::SharedPtr gnss_receiver_publisher_;
+  rclcpp::Publisher<prism_ros_msgs::msg::ReceiverPosition>::SharedPtr rtk_receiver_publisher_;
   rclcpp::Publisher<prism_ros_msgs::msg::RtcmData>::SharedPtr rover_rtcm_publisher_;
   rclcpp::Publisher<sensor_msgs::msg::NavSatFix>::SharedPtr gnss_fix_publisher_;
-  rclcpp::Publisher<sensor_msgs::msg::NavSatFix>::SharedPtr rtk_raw_fix_publisher_;
-  rclcpp::Publisher<sensor_msgs::msg::NavSatFix>::SharedPtr rtk_smoothed_fix_publisher_;
-  rclcpp::Subscription<prism_ros_msgs::msg::RtcmData>::SharedPtr corrections_subscriber_;
+  rclcpp::Publisher<sensor_msgs::msg::NavSatFix>::SharedPtr rtk_fix_publisher_;
   std::vector<rclcpp::ServiceBase::SharedPtr> navigation_services_;
   std::unique_ptr<prism_ros_adapter::Driver> driver_;
 };
