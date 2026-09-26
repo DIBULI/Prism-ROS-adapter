@@ -153,12 +153,13 @@ ros2 service call /prism/gnss/get_timing prism_ros_msgs/srv/GetGnssTiming '{}'
 
 ## Topics, services, and differences from USB
 
-Existing topic names, message types, units, QoS, CORS raw-RTCM input and service
-schemas are shared with the [main README](../README.md#published-topics).
+Topic names, message types, units, QoS and service schemas are shared with the
+[main README](../README.md#published-topics) and [1.2.0 navigation API](navigation.md).
 Camera, IMU, LiDAR, GNSS, RTK and rover RTCM use the RK-local client. Configuration,
-exposure, network, Wi-Fi, time-port and correction-control calls also use it;
+exposure, network, Wi-Fi, time-port, CORS configuration and RTK start/stop calls also use it;
 the Agent remains authoritative for whether a command is currently permitted.
-Firmware upgrade services are not introduced.
+The old Host raw-RTCM correction input is removed. Firmware upgrade services
+are not introduced.
 
 - `device_serial` is **USB-only**. A nonempty value is rejected in an RK-local
   build. `rklocal_socket` selects an absolute Unix socket path, not a TCP endpoint.

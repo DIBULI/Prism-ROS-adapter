@@ -37,6 +37,17 @@ def status(size, version=1):
     return data
 
 
+def sentence(body, extended=False):
+    crc = 0
+    for byte in body.encode("ascii"):
+        crc ^= byte
+        if extended:
+            for _ in range(8):
+                crc = (crc >> 1) ^ (0xEDB88320 if crc & 1 else 0)
+    return (("#" if extended else "$") + body +
+            (f"*{crc:08X}" if extended else f"*{crc:02X}")).encode("ascii")
+
+
 def receive(conn, size):
     data = bytearray()
     while len(data) < size:
@@ -57,6 +68,8 @@ class MockAgent:
         self.frame_id = 0
         self.error = None
         self.streaming = False
+        self.empty_observations = False
+        self.observation_sequence = 0
         self.thread = threading.Thread(target=self.run, daemon=True)
         self.thread.start()
 
@@ -97,8 +110,20 @@ class MockAgent:
             self.send(0xB6, seq, body)
         elif kind == 0x44:
             body = status(32)
-            put(body, 16, self.frame_id * 100, "Q")
-            put(body, 24, 1, "Q")
+            now_ms = int(time.monotonic() * 1000)
+            put(body, 16, now_ms, "Q")
+            put(body, 24, 2 if self.empty_observations else 1, "Q")
+            if not self.empty_observations:
+                fixtures = [
+                    sentence("GNGGA,120000.1,3100.0000,N,12100.0000,E,5,12,0.8,20,M,10,M,,"),
+                    sentence("GNGST,120000.1,0.03,0.04,0.02,0,0.03,0.02,0.05"),
+                    sentence("ADRNAVA,COM1,GPS,FINE,2437,388818100,0,0,18,0;SOL_COMPUTED,NARROW_INT,31,121,20,10,WGS84,0.03,0.02,0.05,0,0,0,20,18,0,0,0,0,0,0,0,0,0,0,0,0,0,0", True),
+                ]
+                for value in fixtures:
+                    self.observation_sequence += 1
+                    body.extend(struct.pack("<QQH6x", self.observation_sequence, now_ms, len(value)))
+                    body.extend(value)
+                put(body, 8, self.observation_sequence, "Q")
             self.send(0xBB, seq, body)
         elif kind == 0x3D:
             body = status(56)
@@ -238,6 +263,16 @@ def main():
                     request.rtk = rtk
                     result = call(GetReceiverPosition, "/prism/rtk/get_receiver_position", request)
                     assert result.success, result.message
+                    assert result.status.valid and result.status.quality == (4 if rtk else 5)
+                    assert result.status.covariance_valid
+                    if rtk:
+                        assert not result.status.timestamp_valid, "GPST must not become UTC without offset"
+                mock.empty_observations = True
+                for rtk in (False, True):
+                    request = GetReceiverPosition.Request()
+                    request.rtk = rtk
+                    result = call(GetReceiverPosition, "/prism/rtk/get_receiver_position", request)
+                    assert result.success, result.message
                     assert not result.status.valid, "empty receiver data must not invent a fix"
                 for action in ("stop", "start", "restart", "stop"):
                     request = ControlStreams.Request()
@@ -259,6 +294,7 @@ def main():
                     process.kill()
                     process.wait()
                 mock.thread.join(timeout=3)
+                print("Mock commands:", dict(mock.commands), "mock error:", repr(mock.error))
                 output.seek(0)
                 print(output.read()[-6000:])
                 node.destroy_node()

@@ -67,8 +67,8 @@ The supported binary mapping is:
 | x86-64 | All supported distributions | `runtime/ros/linux-x64` |
 | ARM64 | All supported distributions | `runtime/ros/linux-arm64` |
 
-Both platform payloads are part of the pinned Prism SDK `1.1.0` release and include
-the production Host SDK 1.1.0 runtime and `800 Hz` IMU update. The
+Both platform payloads are part of the pinned Prism SDK `1.2.0` release and include
+the Host SDK 1.2.0 runtime (Runtime API 18), retaining `800 Hz` IMU support. The
 build scripts detect x86-64 or ARM64 automatically;
 `PRISM_ROS_ARCH=arm64` can be used when building ARM64 through emulation on an
 x86-64 host. Verify the submodule and all ROS runtime prefixes with:
@@ -422,6 +422,10 @@ Important parameters:
 | Parameter | Default | Meaning |
 | --- | --- | --- |
 | `device_serial` | empty | Empty selects the first Prism; otherwise uses the USB serial |
+| `rklocal_socket` | `/run/prism/stream.sock` | RK-local builds only: local Agent Unix socket; not a network address |
+| `navigation_enabled` | `true` | Poll native GNSS/RTK results and module status; does not start CORS |
+| `gps_utc_leap_seconds` | `-1` | Verified GPS-minus-UTC seconds for ADRNAV; unknown leaves UTC stamp zero |
+| `rover_rtcm_enabled` | `false` | Publish receiver RTCM3 output when available; not Host correction input |
 | `camera_enabled` | `true` | Publish all four compressed camera streams |
 | `camera_fps` | `0` | `0` uses device configuration; otherwise request 1–30 FPS |
 | `board_imu_enabled` | `true` | Publish detected board IMUs |
