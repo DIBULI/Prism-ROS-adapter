@@ -85,6 +85,9 @@ x86-64 host. Verify the submodule and all ROS runtime prefixes with:
 
 ## Published topics
 
+Paths below use the default `/prism` prefix. Types use ROS 1 notation;
+for ROS 2, insert `/msg/` between the package and message name.
+
 | Topic | Type | Description |
 | --- | --- | --- |
 | `/prism/camera0/image/compressed` ... `/prism/camera3/image/compressed` | `sensor_msgs/CompressedImage` | Four original MJPEG images; no decode/re-encode |
@@ -92,7 +95,25 @@ x86-64 host. Verify the submodule and all ROS runtime prefixes with:
 | `/prism/imu0/data`, `/prism/imu1/data` | `sensor_msgs/Imu` | Board IMUs in m/s² and rad/s; only detected IMUs publish data |
 | `/prism/lidar/points` | `sensor_msgs/PointCloud2` | Mid-360/Mid-360S/XT32 100 ms clouds with original channel and point-time information |
 | `/prism/lidar/imu` | `sensor_msgs/Imu` | LiDAR-integrated IMU in m/s² and rad/s |
+| `/prism/gnss/timing` | `prism_ros_msgs/GnssTimingStatus` | External synchronization, PPS presence/validity/width, first-RMC delay, NMEA age and basic fix |
+| `/prism/gnss/reception` | `prism_ros_msgs/GnssReceptionStatus` | GNSS UART/NMEA freshness, accepted/rejected counts, UART errors and FIFO overflow |
+| `/prism/gnss/observations` | `prism_ros_msgs/GnssObservations` | Original receiver text sentences (including available RMC/GGA/GST/GSV/GSA/ADRNAV), with cursor, session and gap information |
+| `/prism/gnss/receiver` | `prism_ros_msgs/ReceiverPosition` | Receiver GGA position, solution type, satellites, age, ellipsoidal height and epoch-matched GST standard deviations when available |
+| `/prism/gnss/fix` | `sensor_msgs/NavSatFix` | Standard GGA position; covariance is populated only when valid precision information is available |
+| `/prism/rtk/receiver` | `prism_ros_msgs/ReceiverPosition` | Independent receiver ADRNAV position, native solution type (including SINGLE/DGNSS/FLOAT/FIX), satellites, epoch and ENU standard deviations |
+| `/prism/rtk/fix` | `sensor_msgs/NavSatFix` | Standard ADRNAV position; use `rtk/receiver` to distinguish FLOAT/FIX, which NavSatFix alone cannot represent |
+| `/prism/rtk/status` | `prism_ros_msgs/TimeSyncRtkStatus` | RTK-module link, control state/errors/generations, GNSS, SIM/4G, CORS and transfer/drop counters |
+| `/prism/gnss/rover_rtcm` | `prism_ros_msgs/RtcmData` | Optional receiver-emitted RTCM3 frames; disabled by default, not a CORS input topic |
 | `/diagnostics` | `diagnostic_msgs/DiagnosticArray` | USB, sensor-board, stream counters and drop counters |
+
+`navigation_enabled=true` polls GNSS/RTK results every 100 ms and module/reception
+diagnostics every second; it does not start RTK/CORS or change TimeSync mode.
+Polling is not a guarantee of new solutions at 10 Hz: use `sequence` and `epoch`
+to identify new results. Invalid or stale fixes are not retained as valid
+positions. Receiver RTCM output must be explicitly enabled and only carries
+frames the receiver actually emits; it does not convert proprietary observations
+to RTCM. See [GNSS / RTK interfaces](docs/navigation.md) for freshness, covariance,
+timestamp and recording limitations.
 
 ROS 2 publishes the large compressed-image topics with reliable, volatile QoS
 and depth 2. Camera metadata, both IMU families and point clouds use the normal
@@ -136,6 +157,8 @@ calibration is not invented by the driver; publish the calibrated
 ROS 1 and ROS 2 expose the same device-control services. Every SDK command is
 serialized onto the USB receive thread, so a service callback never races the
 camera, IMU, or LiDAR stream reader.
+Types below use ROS 1 notation; for ROS 2, insert `/srv/` between the package
+and service name.
 
 | Service | Type | Description |
 | --- | --- | --- |
@@ -145,6 +168,17 @@ camera, IMU, or LiDAR stream reader.
 | `/prism/camera/set_exposure_limits` | `prism_ros_msgs/SetExposureLimits` | Set the runtime automatic-exposure time/gain limits shared by all cameras |
 | `/prism/camera/set_unified_exposure` | `prism_ros_msgs/SetUnifiedExposure` | Enable/disable four-camera unified automatic exposure with highlight protection; runtime only |
 | `/prism/system/sync_time` | `prism_ros_msgs/SyncSystemTime` | Explicit Host UTC request to Sensor Board master; reject when GNSS locked; verify RK alignment |
+| `/prism/system/get_timesync_port` | `prism_ros_msgs/GetTimeSyncPort` | Read the applied/persisted TimeSync port mode |
+| `/prism/system/set_timesync_port` | `prism_ros_msgs/SetTimeSyncPort` | Explicitly select input (0), PPS/NMEA output (1), or RTK (2); requires `confirm: true` |
+| `/prism/gnss/get_timing` | `prism_ros_msgs/GetGnssTiming` | Read live external synchronization, PPS and NMEA timing status |
+| `/prism/gnss/get_reception` | `prism_ros_msgs/GetGnssReception` | Read GNSS reception freshness, errors and counters |
+| `/prism/gnss/set_rover_rtcm` | `prism_ros_msgs/SetRoverRtcm` | Enable/disable receiver-emitted RTCM3 output; does not feed CORS corrections |
+| `/prism/rtk/get_receiver_position` | `prism_ros_msgs/GetReceiverPosition` | Read the current receiver position: `rtk: false` for GGA, `rtk: true` for ADRNAV |
+| `/prism/rtk/get_status` | `prism_ros_msgs/GetRtkModuleStatus` | Read RTK-module control, GNSS/4G/CORS status and transfer counters |
+| `/prism/rtk/get_versions` | `prism_ros_msgs/GetRtkModuleVersions` | Read module application/bootloader versions and validity flags |
+| `/prism/rtk/get_cors` | `prism_ros_msgs/GetCorsConfiguration` | Read saved CORS settings, application status and configuration generations; never returns the password |
+| `/prism/rtk/set_cors` | `prism_ros_msgs/SetCorsConfiguration` | Save a complete CORS configuration (enable, IP, port, mountpoint, username and password) on RK; requires `confirm: true` |
+| `/prism/rtk/control` | `prism_ros_msgs/ControlRtk` | Explicitly start/stop RTK; requires confirmation, timeout, and for start the saved configuration generation plus GGA permission |
 | `/prism/device/get_info` | `prism_ros_msgs/GetDeviceInfo` | Read device identity, USB link, sensor-board health, detected sensors, and Host SDK/Agent/sensor-board versions |
 | `/prism/device/get_configuration` | `prism_ros_msgs/GetDeviceConfiguration` | Read persisted Camera FPS, board-IMU rate, MJPEG quality, GNSS UART baud and generation |
 | `/prism/device/set_configuration` | `prism_ros_msgs/SetDeviceConfiguration` | Persist selected Camera FPS, board-IMU rate, MJPEG quality and GNSS UART baud |
@@ -156,6 +190,15 @@ camera, IMU, or LiDAR stream reader.
 | `/prism/streams/control` | `prism_ros_msgs/ControlStreams` | Start, stop, or restart the selected camera, board-IMU, and LiDAR streams |
 | `/prism/wifi/get_hotspot` | `prism_ros_msgs/GetWifiHotspot` | Read Wi-Fi interface presence, persisted enable state, AP/DHCP runtime state, SSID, and address |
 | `/prism/wifi/set_hotspot` | `prism_ros_msgs/SetWifiHotspot` | Persistently enable or disable the RK Wi-Fi hotspot |
+
+For RTK service request fields and ROS 2 command examples, see
+[GNSS / RTK services](docs/navigation.md#services). The RTK-module, not the ROS
+node, logs into NTRIP and feeds corrections to the receiver. Saving CORS
+settings does not prove they were applied or that CORS is connected. Starting
+requires the exact saved configuration generation and explicit `allow_gga: true`
+permission to send live position to that caster. Stopping retains GNSS timing
+and saved credentials. RTK control and TimeSync mode changes briefly pause and
+restore this node's sensor streams. There is no Host RTCM input topic/service.
 
 Exposure changes are runtime-only and are not persisted by the Agent. Service
 responses contain the values actually accepted by the device, including the
