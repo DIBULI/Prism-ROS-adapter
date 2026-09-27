@@ -16,7 +16,7 @@ These tags are local build outputs, **not images published to Docker Hub**.
 ## Prerequisites
 
 - RK runs Agent **1.2.0**, with its RK-local socket enabled.
-  SDK is pinned to `84ed73e` / 1.2.0. No offline dataset download endpoints are exposed by ROS.
+  SDK is pinned to `1e7d6f7` / 1.2.0. No offline dataset download endpoints are exposed by ROS.
 - Docker Engine with BuildKit/named build-context support. Native ARM64 builds
   need no emulator; an x86-64 build server needs registered AArch64 binfmt/QEMU.
 - On RK, `test -S /run/prism/stream.sock` succeeds. Container access to this

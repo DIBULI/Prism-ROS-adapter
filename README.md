@@ -29,9 +29,11 @@ libstdc++ and glibc while building in the target ROS environment.
 
 This repository pins Prism SDK `1.2.0` as the `third_party/Prism-SDK` Git
 submodule. It contains the Host SDK 1.2.0 runtime/ABI 18 required by Agent 1.2.0.
-The pinned release commit is `84ed73e3a1e17dc6425c6b44e890f3098af59d3b`
+The pinned release commit is `1e7d6f756887be45c406209b3cd46e90d11bdeae`
 ([SDK v1.2.0](https://github.com/DIBULI/Prism-SDK/releases/tag/v1.2.0)),
 including the aligned RK-local C++ API and interface guides under `docs/`.
+This refresh adds SDK RTK workflow/continuous-position examples with English
+usage comments in their source; SDK libraries and ROS interfaces are unchanged.
 The default build uses the Host USB client. A ROS 2 build with
 `-DPRISM_TRANSPORT=rklocal` instead links the ARM64 RK-local SDK; the two
 transports are separate binaries, not a runtime connection-mode toggle.
