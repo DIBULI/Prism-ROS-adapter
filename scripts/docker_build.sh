@@ -60,6 +60,7 @@ validate_sdk_root() {
     "include/prism/usb/gnss_reception.hpp"
     "include/prism/usb/gnss_plot.hpp"
     "include/prism/usb/lidar_points.hpp"
+    "include/prism/usb/lidar_power.hpp"
     "include/prism/usb/rtk.hpp"
     "include/prism/usb/timesync_port.hpp"
     "include/prism/usb/exposure.hpp"
