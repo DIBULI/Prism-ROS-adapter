@@ -34,6 +34,8 @@
 #include <prism_ros_msgs/GetExposure.h>
 #include <prism_ros_msgs/GetLidarNetwork.h>
 #include <prism_ros_msgs/GetLidarStatus.h>
+#include <prism_ros_msgs/GetLidarPower.h>
+#include <prism_ros_msgs/SetLidarStandby.h>
 #include <prism_ros_msgs/GetStreamState.h>
 #include <prism_ros_msgs/GetWifiHotspot.h>
 #include <prism_ros_msgs/ProbeLidarNetwork.h>
@@ -550,6 +552,25 @@ class PrismRos1Node {
     return true;
   }
 
+  bool getLidarPower(prism_ros_msgs::GetLidarPower::Request& request,
+                     prism_ros_msgs::GetLidarPower::Response& response) {
+    try {
+      const auto s = driver_->getLidarPower(request.timeout_ms);
+      response.model=s.model; response.state=s.state; response.vendor_state=s.vendor_state;
+      response.success=true; response.message="ok";
+    } catch (const std::exception& error) { failService(response, error); }
+    return true;
+  }
+  bool setLidarStandby(prism_ros_msgs::SetLidarStandby::Request& request,
+                       prism_ros_msgs::SetLidarStandby::Response& response) {
+    try {
+      if (!request.confirm) throw std::invalid_argument("confirm must be true");
+      const auto s = driver_->setLidarStandby(request.standby, request.timeout_ms);
+      response.model=s.model; response.state=s.state; response.vendor_state=s.vendor_state;
+      response.success=true; response.message="ok";
+    } catch (const std::exception& error) { failService(response, error); }
+    return true;
+  }
   bool getLidarStatus(prism_ros_msgs::GetLidarStatus::Request&,
                       prism_ros_msgs::GetLidarStatus::Response& response) {
     try {
@@ -694,6 +715,8 @@ class PrismRos1Node {
   }
 
   void createNavigationServices() {
+    navigation_services_.push_back(node_.advertiseService(topic(topic_prefix_, "lidar/get_power"), &PrismRos1Node::getLidarPower, this));
+    navigation_services_.push_back(node_.advertiseService(topic(topic_prefix_, "lidar/set_standby"), &PrismRos1Node::setLidarStandby, this));
     navigation_services_.push_back(node_.advertiseService(topic(topic_prefix_, "gnss/get_timing"), &PrismRos1Node::handleGetGnssTiming, this));
     navigation_services_.push_back(node_.advertiseService(topic(topic_prefix_, "system/get_timesync_port"), &PrismRos1Node::handleGetTimeSyncPort, this));
     navigation_services_.push_back(node_.advertiseService(topic(topic_prefix_, "gnss/set_rover_rtcm"), &PrismRos1Node::handleSetRoverRtcm, this));

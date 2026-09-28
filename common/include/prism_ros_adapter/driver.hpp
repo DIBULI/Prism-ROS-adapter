@@ -137,6 +137,12 @@ struct LidarStatusState {
   std::string error;
 };
 
+struct LidarPowerState {
+  uint8_t model = 0;
+  uint8_t state = 0; // 0 unknown, 1 running, 2 standby, 3 transitioning, 4 error.
+  uint32_t vendor_state = 0;
+};
+
 struct LidarNetworkState {
   bool enabled = false;
   std::string host_ip;
@@ -314,6 +320,8 @@ class Driver {
       uint32_t imu_rate_hz, bool set_mjpeg_quality, uint32_t mjpeg_quality,
       bool set_gnss_uart_baud, uint32_t gnss_uart_baud);
   LidarStatusState getLidarStatus();
+  LidarPowerState getLidarPower(uint32_t timeout_ms);
+  LidarPowerState setLidarStandby(bool standby, uint32_t timeout_ms);
   LidarNetworkState getLidarNetwork();
   LidarNetworkState setLidarNetwork(bool enabled, std::string host_ip,
                                     std::string netmask,

@@ -6,6 +6,8 @@ find_package(rosidl_default_generators REQUIRED)
 find_package(std_msgs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
+  "srv/GetLidarPower.srv"
+  "srv/SetLidarStandby.srv"
   "msg/GnssReceptionStatus.msg"
   "msg/TimeSyncRtkStatus.msg"
   "msg/TimeSyncRtkVersions.msg"

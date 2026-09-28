@@ -1660,6 +1660,29 @@ LidarStatusState Driver::getLidarStatus() {
   });
 }
 
+LidarPowerState Driver::getLidarPower(uint32_t timeout_ms) {
+  if (!timeout_ms || timeout_ms > 30000)
+    throw std::invalid_argument("timeout_ms must be 1..30000");
+  return impl_->invokeControl<LidarPowerState>([this, timeout_ms](auto& context) {
+    if (context.video_started || context.imu_started || context.lidar_started)
+      throw std::logic_error("stop all capture streams before querying LiDAR power");
+    const auto s = context.client.lidarPowerStatus(toSdkModel(impl_->config.lidar_model), timeout_ms);
+    return LidarPowerState{static_cast<uint8_t>(s.model), static_cast<uint8_t>(s.state), s.vendor_state};
+  });
+}
+
+LidarPowerState Driver::setLidarStandby(bool standby, uint32_t timeout_ms) {
+  if (!timeout_ms || timeout_ms > 30000)
+    throw std::invalid_argument("timeout_ms must be 1..30000");
+  return impl_->invokeControl<LidarPowerState>([this, standby, timeout_ms](auto& context) {
+    // Do not use runIdleOperation: it silently stops and resumes capture.
+    if (context.video_started || context.imu_started || context.lidar_started)
+      throw std::logic_error("stop all capture streams before changing LiDAR power");
+    const auto s = context.client.setLidarStandby(toSdkModel(impl_->config.lidar_model), standby, timeout_ms);
+    return LidarPowerState{static_cast<uint8_t>(s.model), static_cast<uint8_t>(s.state), s.vendor_state};
+  });
+}
+
 LidarNetworkState Driver::getLidarNetwork() {
   return impl_->invokeControl<LidarNetworkState>([this](auto& context) {
     return impl_->runIdleOperation<LidarNetworkState>(

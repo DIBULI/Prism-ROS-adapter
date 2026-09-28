@@ -29,7 +29,7 @@ libstdc++ and glibc while building in the target ROS environment.
 
 This repository pins Prism SDK `1.2.0` as the `third_party/Prism-SDK` Git
 submodule. It contains the Host SDK 1.2.0 runtime/ABI 18 required by Agent 1.2.0.
-The pinned release commit is `1e7d6f756887be45c406209b3cd46e90d11bdeae`
+The pinned release commit is `53f15fe685770be5b62080da8ec8c4fdb798edc2`
 ([SDK v1.2.0](https://github.com/DIBULI/Prism-SDK/releases/tag/v1.2.0)),
 including the aligned RK-local C++ API and interface guides under `docs/`.
 This refresh adds SDK RTK workflow/continuous-position examples with English
@@ -183,6 +183,8 @@ and service name.
 | `/prism/device/get_configuration` | `prism_ros_msgs/GetDeviceConfiguration` | Read persisted Camera FPS, board-IMU rate, MJPEG quality, GNSS UART baud and generation |
 | `/prism/device/set_configuration` | `prism_ros_msgs/SetDeviceConfiguration` | Persist selected Camera FPS, board-IMU rate, MJPEG quality and GNSS UART baud |
 | `/prism/lidar/get_status` | `prism_ros_msgs/GetLidarStatus` | Read the live LiDAR model, connection/receive state, address, serial, packet/point counters, and errors |
+| `/prism/lidar/get_power` | `prism_ros_msgs/GetLidarPower` | Read hardware power state without waking; all capture streams must be stopped |
+| `/prism/lidar/set_standby` | `prism_ros_msgs/SetLidarStandby` | Independent hardware standby/wake; requires confirmation and idle streams; never automatically resumes capture |
 | `/prism/lidar/get_network` | `prism_ros_msgs/GetLidarNetwork` | Read the persisted LiDAR network configuration and current interface/link/subnet/reachability state |
 | `/prism/lidar/set_network` | `prism_ros_msgs/SetLidarNetwork` | Persist LiDAR enable, host IPv4, netmask, and LiDAR IPv4 settings |
 | `/prism/lidar/probe_network` | `prism_ros_msgs/ProbeLidarNetwork` | Apply/check the configured host interface and test whether the LiDAR target is reachable |
@@ -246,6 +248,8 @@ exit status.
 | `device/get_configuration` | none | Returns the current persisted/default Camera FPS, board-IMU rate, MJPEG quality, and generation. |
 | `device/set_configuration` | `confirm`; `set_camera_fps` + `camera_fps`; `set_imu_rate_hz` + `imu_rate_hz`; `set_mjpeg_quality` + `mjpeg_quality` | Set at least one selector. Unselected fields are preserved. The currently supported ranges are FPS 1–30, IMU 800 Hz, and MJPEG quality 1–99. |
 | `lidar/get_status` | none | Safe during streaming; returns model, live receive state, serial/IP, and counters. |
+| `lidar/get_power` | `timeout_ms` | Idle only; fresh hardware state, not receive state. Timeout 1..30000 ms. |
+| `lidar/set_standby` | `confirm`, `standby`, `timeout_ms` | Idle only. True enters standby; false wakes; no automatic capture start. See [usage and limitations](docs/lidar-power.md). |
 | `lidar/get_network` | none | Returns saved network values and the current `end0`-side interface/link status. It briefly pauses and restores streams. |
 | `lidar/set_network` | `confirm`, `enabled`, `host_ip`, `netmask`, `lidar_ip` | Persists all LiDAR-network fields as one configuration. Select the LiDAR model separately with `lidar_model` in the startup YAML. |
 | `lidar/probe_network` | none | Applies/checks the host-side configuration and reports `same_subnet` and `target_reachable`. |

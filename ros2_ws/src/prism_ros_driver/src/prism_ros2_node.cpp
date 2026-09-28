@@ -34,6 +34,8 @@
 #include <prism_ros_msgs/srv/get_exposure.hpp>
 #include <prism_ros_msgs/srv/get_lidar_network.hpp>
 #include <prism_ros_msgs/srv/get_lidar_status.hpp>
+#include <prism_ros_msgs/srv/get_lidar_power.hpp>
+#include <prism_ros_msgs/srv/set_lidar_standby.hpp>
 #include <prism_ros_msgs/srv/get_stream_state.hpp>
 #include <prism_ros_msgs/srv/get_wifi_hotspot.hpp>
 #include <prism_ros_msgs/srv/probe_lidar_network.hpp>
@@ -699,6 +701,27 @@ class PrismRos2Node : public rclcpp::Node {
   }
 
   void createNavigationServices() {
+    navigation_services_.push_back(create_service<prism_ros_msgs::srv::GetLidarPower>(
+        topic(topic_prefix_, "lidar/get_power"),
+        [this](const std::shared_ptr<prism_ros_msgs::srv::GetLidarPower::Request> request,
+               std::shared_ptr<prism_ros_msgs::srv::GetLidarPower::Response> response) {
+          try {
+            const auto s = driver_->getLidarPower(request->timeout_ms);
+            response->model=s.model; response->state=s.state; response->vendor_state=s.vendor_state;
+            response->success=true; response->message="ok";
+          } catch (const std::exception& error) { failService(*response, error); }
+        }));
+    navigation_services_.push_back(create_service<prism_ros_msgs::srv::SetLidarStandby>(
+        topic(topic_prefix_, "lidar/set_standby"),
+        [this](const std::shared_ptr<prism_ros_msgs::srv::SetLidarStandby::Request> request,
+               std::shared_ptr<prism_ros_msgs::srv::SetLidarStandby::Response> response) {
+          try {
+            if (!request->confirm) throw std::invalid_argument("confirm must be true");
+            const auto s = driver_->setLidarStandby(request->standby, request->timeout_ms);
+            response->model=s.model; response->state=s.state; response->vendor_state=s.vendor_state;
+            response->success=true; response->message="ok";
+          } catch (const std::exception& error) { failService(*response, error); }
+        }));
     navigation_services_.push_back(create_service<prism_ros_msgs::srv::GetGnssTiming>(
         topic(topic_prefix_, "gnss/get_timing"),
         [this](const std::shared_ptr<prism_ros_msgs::srv::GetGnssTiming::Request> request,

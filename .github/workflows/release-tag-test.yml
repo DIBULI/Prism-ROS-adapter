@@ -64,7 +64,7 @@ jobs:
       - name: Verify pinned release metadata
         run: |
           test "$(cat VERSION)" = 1.2.0
-          test "$(git -C third_party/Prism-SDK rev-parse HEAD)" = 1e7d6f756887be45c406209b3cd46e90d11bdeae
+          test "$(git -C third_party/Prism-SDK rev-parse HEAD)" = 53f15fe685770be5b62080da8ec8c4fdb798edc2
           test "$(cat third_party/Prism-SDK/VERSION)" = "$(cat VERSION)"
 
       - name: Verify Prism SDK submodule
