@@ -889,6 +889,7 @@ class PrismRos1Node {
   void publishCamera(const prism_ros_adapter::CameraFrameSet& frame) {
     const ros::Time stamp = rosTime(frame.timestamp_ns);
     for (size_t i = 0; i < camera_publishers_.size(); ++i) {
+      if (frame.jpeg[i].empty()) continue;
       sensor_msgs::CompressedImage message;
       message.header.stamp = stamp;
       message.header.frame_id = camera_frame_prefix_ + std::to_string(i);

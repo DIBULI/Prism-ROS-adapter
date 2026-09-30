@@ -41,6 +41,11 @@ class DeviceTimeResolver {
     return reference_.source != ReferenceSource::None;
   }
 
+  bool hasFreshReference(uint64_t now) const noexcept {
+    return hasReference() && now >= reference_.arrival_steady_ns &&
+           now - reference_.arrival_steady_ns <= kMaximumReferenceAgeNs;
+  }
+
   bool hasBoardReference() const noexcept {
     return reference_.source == ReferenceSource::BoardImu;
   }

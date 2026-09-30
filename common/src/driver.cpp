@@ -1,3 +1,4 @@
+#include <prism/usb/camera_assembler.hpp>
 #include "prism_ros_adapter/driver.hpp"
 #include "prism_ros_adapter/navigation_conversion.hpp"
 #include "prism_ros_adapter/device_time_resolver.hpp"
@@ -28,7 +29,6 @@ namespace {
 
 constexpr double kStandardGravity = 9.80665;
 constexpr double kRadiansPerDegree = 0.017453292519943295769;
-constexpr uint16_t kVideoChunkLast = 0x0002u;
 
 uint64_t steadyNowNs() {
   return static_cast<uint64_t>(
@@ -372,17 +372,6 @@ class DispatchQueue {
   std::thread worker_;
 };
 
-struct CameraAssembly {
-  bool metadata_seen = false;
-  prism::VideoMeta metadata;
-  uint8_t last_mask = 0;
-  uint8_t complete_mask = 0;
-  uint8_t invalid_mask = 0;
-  uint32_t width = 0;
-  uint32_t height = 0;
-  std::array<uint32_t, 4> received{};
-  std::array<std::vector<uint8_t>, 4> jpeg;
-};
 
 }  // namespace
 
@@ -617,7 +606,7 @@ struct Driver::Impl {
       std::rethrow_exception(stop_error);
     }
 
-    camera_assemblies.clear();
+    camera_assembler.reset();
     device_time_resolver.reset();
     try {
       Result result = function(context.client);
@@ -731,7 +720,7 @@ struct Driver::Impl {
       throw;
     }
 
-    camera_assemblies.clear();
+    camera_assembler.reset();
     device_time_resolver.reset();
     prism::SystemTimeSyncResult result;
     try {
@@ -794,7 +783,7 @@ struct Driver::Impl {
       config.enable_lidar = config.enable_lidar && !lidar;
     }
 
-    camera_assemblies.clear();
+    camera_assembler.reset();
     device_time_resolver.reset();
     try {
       startConfiguredStreams(context);
@@ -809,7 +798,7 @@ struct Driver::Impl {
       config.enable_camera = previous_camera;
       config.enable_board_imu = previous_board_imu;
       config.enable_lidar = previous_lidar;
-      camera_assemblies.clear();
+      camera_assembler.reset();
       device_time_resolver.reset();
       try {
         startConfiguredStreams(context);
@@ -924,7 +913,7 @@ struct Driver::Impl {
     const auto resolved = device_time_resolver.resolveLidar(
         sdk_timestamp_ns, batch.timestamp_raw, steadyNowNs());
     const bool reference_required =
-        config.enable_camera || config.enable_board_imu;
+        device_time_resolver.hasFreshReference(steadyNowNs());
     if (!resolved && reference_required &&
         config.require_synchronized_timestamps) {
       dropped_unsynchronized.fetch_add(1);
@@ -955,7 +944,7 @@ struct Driver::Impl {
     const auto resolved = device_time_resolver.resolveLidar(
         sdk_timestamp_ns, sample.timestamp_raw_ns, steadyNowNs());
     const bool reference_required =
-        config.enable_camera || config.enable_board_imu;
+        device_time_resolver.hasFreshReference(steadyNowNs());
     if (!resolved && reference_required &&
         config.require_synchronized_timestamps) {
       dropped_unsynchronized.fetch_add(1);
@@ -979,103 +968,48 @@ struct Driver::Impl {
     lidar_imu_dispatch.push(std::move(output));
   }
 
-  void handleVideoChunk(sdk::Client& client,
-                        const prism::VideoChunkView& chunk) {
-    if (chunk.camera_id >= 4 || chunk.encoded_size == 0 ||
-        chunk.chunk_offset > chunk.encoded_size ||
-        chunk.data_size > chunk.encoded_size - chunk.chunk_offset) {
-      log(LogLevel::Warning, "discarded malformed camera chunk");
-      return;
+  void publishCameraFrame(prism::capture::CameraFrameSet frame) {
+    const bool timestamp_valid = frame.metadata.valid && frame.metadata.trigger_time_ns;
+    if (!config.enable_camera) return;
+    if (config.require_synchronized_timestamps && !timestamp_valid) {
+      dropped_unsynchronized.fetch_add(1); return;
     }
-    auto& assembly = camera_assemblies[chunk.frame_id];
-    assembly.width = chunk.width;
-    assembly.height = chunk.height;
-    const size_t camera = chunk.camera_id;
-
-    if (config.enable_camera) {
-      auto& image = assembly.jpeg[camera];
-      if (image.empty()) image.resize(chunk.encoded_size);
-      if (image.size() != chunk.encoded_size ||
-          assembly.received[camera] != chunk.chunk_offset) {
-        assembly.invalid_mask = static_cast<uint8_t>(
-            assembly.invalid_mask | static_cast<uint8_t>(1u << camera));
-      } else if (chunk.data_size != 0) {
-        std::memcpy(image.data() + chunk.chunk_offset, chunk.data,
-                    chunk.data_size);
-        assembly.received[camera] += static_cast<uint32_t>(chunk.data_size);
-      }
-      if (assembly.received[camera] == chunk.encoded_size) {
-        assembly.complete_mask = static_cast<uint8_t>(
-            assembly.complete_mask | static_cast<uint8_t>(1u << camera));
-      }
-    }
-
-    if ((chunk.flags & kVideoChunkLast) != 0u) {
-      assembly.last_mask = static_cast<uint8_t>(
-          assembly.last_mask | static_cast<uint8_t>(1u << camera));
-    }
-    finishCameraFrame(client, chunk.frame_id);
-    trimCameraAssemblies(client);
-  }
-
-  void handleVideoMeta(sdk::Client& client, const prism::VideoMeta& meta) {
-    if (meta.valid && meta.trigger_time_ns != 0u) {
-      device_time_resolver.observeCamera(meta.trigger_time_ns, steadyNowNs());
-    }
-    auto& assembly = camera_assemblies[meta.host_frame_id];
-    assembly.metadata_seen = true;
-    assembly.metadata = meta;
-    finishCameraFrame(client, meta.host_frame_id);
-    trimCameraAssemblies(client);
-  }
-
-  void finishCameraFrame(sdk::Client& client, uint32_t frame_id) {
-    const auto found = camera_assemblies.find(frame_id);
-    if (found == camera_assemblies.end()) return;
-    auto& assembly = found->second;
-    if (!assembly.metadata_seen || assembly.last_mask != camera_mask) return;
-
-    const bool payload_complete =
-        !config.enable_camera ||
-        (assembly.complete_mask == camera_mask && assembly.invalid_mask == 0u);
-    const bool timestamp_valid =
-        assembly.metadata.valid && assembly.metadata.trigger_time_ns != 0u;
-
     CameraFrameSet output;
-    if (config.enable_camera && payload_complete &&
-        (!config.require_synchronized_timestamps || timestamp_valid)) {
-      output.timestamp_ns = assembly.metadata.trigger_time_ns;
-      output.host_frame_id = frame_id;
-      output.carrier_frame_id = assembly.metadata.carrier_frame_id;
-      output.width = assembly.width;
-      output.height = assembly.height;
-      output.jpeg = std::move(assembly.jpeg);
-      output.exposure_us = assembly.metadata.exposure_us;
-      output.analog_gain_x1024 = assembly.metadata.analog_gain_x1024;
-      output.digital_gain_x1024 = assembly.metadata.digital_gain_x1024;
-    } else if (config.enable_camera && !timestamp_valid) {
-      dropped_unsynchronized.fetch_add(1);
-    }
-
-    // Release the Agent's next camera credit before ROS serialization.
-    sdk::acknowledgeVideo(client, frame_id);
-    camera_assemblies.erase(found);
-
-    if (config.enable_camera && payload_complete &&
-        (!config.require_synchronized_timestamps || timestamp_valid)) {
-      camera_frame_sets.fetch_add(1);
-      camera_dispatch.push(std::move(output));
-    }
+    output.timestamp_ns = timestamp_valid ? frame.metadata.trigger_time_ns : 0;
+    output.host_frame_id = frame.frame_id;
+    output.carrier_frame_id = frame.metadata.carrier_frame_id;
+    output.width = frame.width; output.height = frame.height;
+    output.jpeg = std::move(frame.jpeg);
+    output.exposure_us = frame.metadata.exposure_us;
+    output.analog_gain_x1024 = frame.metadata.analog_gain_x1024;
+    output.digital_gain_x1024 = frame.metadata.digital_gain_x1024;
+    camera_frame_sets.fetch_add(1);
+    camera_dispatch.push(std::move(output));
   }
 
-  void trimCameraAssemblies(sdk::Client& client) {
-    while (camera_assemblies.size() > 8) {
-      const auto found = camera_assemblies.begin();
-      const uint32_t stale_frame_id = found->first;
-      camera_assemblies.erase(found);
-      sdk::acknowledgeVideo(client, stale_frame_id);
-      log(LogLevel::Warning, "discarded incomplete camera frame set " +
-                                 std::to_string(stale_frame_id));
+  void consumeCameraResult(sdk::Client& client, prism::capture::CameraChunkResult result) {
+    // One credit per retired set, including an entirely missing set.
+    for (auto id : result.discarded_incomplete_frame_ids) sdk::acknowledgeVideo(client, id);
+    if (!result.discarded_diagnostics.empty() &&
+        std::chrono::steady_clock::now() >= next_camera_warning) {
+      log(LogLevel::Warning, result.discarded_diagnostics.back().describe());
+      next_camera_warning = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    }
+    for (auto& frame : result.partial_frames) publishCameraFrame(std::move(frame));
+    if (result.completed) {
+      sdk::acknowledgeVideo(client, result.completed->frame_id);
+      publishCameraFrame(std::move(*result.completed));
+    }
+  }
+  void handleVideoChunk(sdk::Client& client, const prism::VideoChunkView& chunk) {
+    consumeCameraResult(client, camera_assembler.ingest(chunk));
+  }
+  void handleVideoMeta(sdk::Client& client, const prism::VideoMeta& meta) {
+    if (meta.valid && meta.trigger_time_ns)
+      device_time_resolver.observeCamera(meta.trigger_time_ns, steadyNowNs());
+    if (auto frame = camera_assembler.addMetadata(meta)) {
+      sdk::acknowledgeVideo(client, frame->frame_id);
+      publishCameraFrame(std::move(*frame));
     }
   }
 
@@ -1122,9 +1056,7 @@ struct Driver::Impl {
     const auto deadline =
         std::chrono::steady_clock::now() + std::chrono::seconds(5);
     const auto reference_ready = [this]() {
-      return config.enable_board_imu
-                 ? device_time_resolver.hasBoardReference()
-                 : device_time_resolver.hasReference();
+      return device_time_resolver.hasReference();
     };
     while (!reference_ready() && std::chrono::steady_clock::now() < deadline) {
       try {
@@ -1140,8 +1072,8 @@ struct Driver::Impl {
       }
     }
     if (!reference_ready()) {
-      throw std::runtime_error(
-          "camera/board IMU did not provide a synchronized device timestamp");
+      log(LogLevel::Warning,
+          "waiting for synchronized camera/IMU timestamps; other streams continue");
     }
     // Samples discarded while establishing the initial clock anchor are not
     // part of the advertised streaming interval.
@@ -1215,10 +1147,14 @@ struct Driver::Impl {
       auto next_status = std::chrono::steady_clock::now();
       auto next_navigation = std::chrono::steady_clock::now();
       auto last_frame_received = std::chrono::steady_clock::now();
+#ifdef PRISM_ROS_RKLOCAL
+      uint64_t reported_raw_drops = 0;
+#endif
       while (!stop_requested.load() && keep_running()) {
 #ifdef PRISM_ROS_RKLOCAL
-        if (client.droppedRawFrames() != 0) {
-          throw std::runtime_error("RK-local raw event queue overflow; acquisition stopped to avoid silent data loss");
+        if (client.droppedRawFrames() != reported_raw_drops) {
+          reported_raw_drops = client.droppedRawFrames();
+          log(LogLevel::Warning, "RK-local raw queue dropped events: " + std::to_string(reported_raw_drops));
         }
 #endif
         processControls(control_context);
@@ -1256,9 +1192,11 @@ struct Driver::Impl {
           if ((video_started || imu_started || lidar_started) &&
               std::chrono::steady_clock::now() - last_frame_received >=
                   std::chrono::seconds(10)) {
-            throw;
+            log(LogLevel::Warning, "no sensor frames for 10 seconds; waiting without stopping acquisition");
+            last_frame_received = std::chrono::steady_clock::now();
           }
         }
+        consumeCameraResult(client, camera_assembler.expire());
 
         const auto now = std::chrono::steady_clock::now();
         // All SDK I/O stays on this thread; queries buffer stream frames in
@@ -1377,7 +1315,8 @@ struct Driver::Impl {
   bool sensor_board_time_synced = false;
   std::string product_serial;
   uint8_t camera_mask = 0x0fu;
-  std::map<uint32_t, CameraAssembly> camera_assemblies;
+  prism::capture::CameraFrameAssembler camera_assembler;
+  std::chrono::steady_clock::time_point next_camera_warning{};
   std::atomic<uint64_t> camera_frame_sets{0};
   std::array<std::atomic<uint64_t>, 2> board_imu_samples{};
   std::atomic<uint64_t> lidar_batches{0};
