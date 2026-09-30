@@ -13,6 +13,7 @@ SUPPORTED_PLATFORMS=(
 )
 
 EXPECTED_PREFIX_FILES=(
+  include/prism/usb/camera_assembler.hpp
   include/prism/usb/client.hpp
   include/prism/usb/common.hpp
   include/prism/usb/configuration.hpp
