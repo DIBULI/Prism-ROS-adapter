@@ -115,3 +115,19 @@ stream. `gnss/rover_rtcm` only carries RTCM3 frames the receiver actually emits;
 it does not convert proprietary full-frequency observation messages into RTCM.
 ROS QoS/queues can also drop messages; these topics are not a lossless raw
 serial-port recorder. No firmware-upgrade service is introduced.
+
+## Migration from 1.1.0
+
+- Use receiver-native `gnss/receiver`, `rtk/receiver` and `rtk/fix` instead of
+  `rtk/navigation`, `rtk/fix_raw`, `rtk/fix_smoothed` and `GetRtkNavigation`.
+- `rtk/status` now uses `TimeSyncRtkStatus`; `rtk/get_status` uses
+  `GetRtkModuleStatus`. Rebuild generated messages and dependent nodes.
+- The old `rtk/corrections`, `ControlRtkCorrections` and `RtkCorrectionStatus`
+  interfaces are removed. Use module CORS configuration and RTK controls.
+- PointCloud2 uses a 28-byte point layout rather than 20 bytes, adding `line`,
+  `line_valid`, `ring`, `return_id` and `confidence`. Read field descriptors
+  and `point_step`; do not hardcode offsets or treat confidence as a probability.
+- Exposure responses include `unified_automatic`. Current matching firmware uses
+  active-camera feedback and preserves equal exposure on the available cameras.
+- Old generated interfaces and the retired raw/smoothed dataset format are not
+  compatibility targets. Existing recordings are not rewritten.

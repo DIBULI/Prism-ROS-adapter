@@ -5,7 +5,6 @@
 Prism ROS Adapter exposes DIBULI Prism data as standard ROS topics. The shared
 driver supports the Host USB SDK (ROS 1/2) and the RK-local SDK (ROS 2 on RK
 ARM64). The pinned SDK submodule provides public headers and binary libraries.
-For ROS 2 **inside RK**, see [Ubuntu 22.04/24.04 RK-local Docker](docs/rklocal-docker.md).
 
 ## Supported ROS releases
 
@@ -29,9 +28,8 @@ libstdc++ and glibc while building in the target ROS environment.
 
 This repository pins Prism SDK `1.2.0` as the `third_party/Prism-SDK` Git
 submodule. It contains the Host SDK 1.2.0 runtime/ABI 18 required by Agent 1.2.0.
-The pinned release commit is `53f15fe685770be5b62080da8ec8c4fdb798edc2`
-([SDK v1.2.0](https://github.com/DIBULI/Prism-SDK/releases/tag/v1.2.0)),
-including the aligned RK-local C++ API and interface guides under `docs/`.
+The pinned [SDK v1.2.0](https://github.com/DIBULI/Prism-SDK/releases/tag/v1.2.0)
+includes the aligned RK-local C++ API and interface guides under `docs/`.
 This refresh adds SDK RTK workflow/continuous-position examples with English
 usage comments in their source; SDK libraries and ROS interfaces are unchanged.
 The default build uses the Host USB client. A ROS 2 build with
@@ -64,8 +62,8 @@ The SDK repository contains only:
 - exported CMake package configuration files; and
 - the Prism USB udev rule.
 
-The Prism Agent and USB SDK implementation source are not included. Neither
-the local Docker build nor release CI checks out or compiles Agent source.
+The release includes the public SDK headers and libraries needed to build the
+adapter; separate device implementation sources are not required.
 The supported binary mapping is:
 
 | Architecture | ROS distribution | SDK submodule runtime prefix |
@@ -399,7 +397,7 @@ Build and install the adapter. The first argument is the SDK prefix and the
 second is the adapter install prefix:
 
 ```bash
-cd /work/projects/prism-ros-adapter
+cd /path/to/Prism-ROS-adapter
 ./scripts/install_ros1_noetic.sh /opt/prism-sdk /opt/prism-ros/noetic
 source /opt/prism-ros/noetic/setup.bash
 export LD_LIBRARY_PATH="/opt/prism-sdk/lib:${LD_LIBRARY_PATH:-}"
@@ -440,7 +438,7 @@ sudo apt install libssl-dev libusb-1.0-0-dev pkg-config \
 Build and install:
 
 ```bash
-cd /work/projects/prism-ros-adapter
+cd /path/to/Prism-ROS-adapter
 source /opt/ros/jazzy/setup.bash
 ./scripts/install_ros2.sh /opt/prism-sdk /opt/prism-ros/jazzy
 source /opt/prism-ros/jazzy/setup.bash
@@ -532,15 +530,23 @@ Use `/prism/lidar/get_network` to read the saved and live interface state and
 test target reachability. The adapter does not infer the model or IP address,
 so both must match the connected LiDAR.
 
+## Internal alignment and missing data
+
+With the current matching device firmware, only internally aligned onboard IMU
+samples are emitted. Startup or re-alignment can briefly produce no IMU messages;
+other healthy streams continue. This does not require GNSS lock and does not
+establish a UTC epoch. Preserve the device time domain when recording or fusing
+external measurements. See the SDK time guide for the alignment/UTC distinction.
+Unified automatic exposure uses the active cameras; the missing-camera state
+remains visible. A shared USB/socket disconnection still ends the session.
+
 ## Docker build
 
-This section covers **USB host Docker**. For Ubuntu 22.04/Humble and
-24.04/Jazzy ARM64 containers running **on RK**, use the separate
-[RK-local build/run scripts](docs/rklocal-docker.md); no USB passthrough is needed.
+This section covers **USB host Docker**.
 
 Docker automatically selects the matching binary SDK prefix from the pinned
 `third_party/Prism-SDK` submodule and copies it into the ROS image. It never
-needs the Prism Agent repository and never compiles the USB SDK. To test an
+needs device implementation sources or compiles the USB SDK. To test an
 alternative binary-only SDK prefix, set `PRISM_USB_SDK_PREFIX`; the directory
 must contain the public headers, matching shared or static library, CMake
 package files and udev rule:
@@ -568,7 +574,7 @@ base image move over time.
 Build one image:
 
 ```bash
-cd /work/projects/prism-ros-adapter
+cd /path/to/Prism-ROS-adapter
 ./scripts/docker_build.sh noetic
 ./scripts/docker_build.sh jazzy
 ```
@@ -682,8 +688,7 @@ attached.
 ## Validation
 
 Run `python3 scripts/verify_navigation_ros2.py` after sourcing the built ROS2
-workspace for offline message serialization tests. RK-local Docker also has
-a mock-Agent integration test described in [its guide](docs/rklocal-docker.md).
+workspace for offline message serialization tests.
 These tests do not connect hardware or start CORS.
 
 Historical validation records under `docs/testing/` describe their original
