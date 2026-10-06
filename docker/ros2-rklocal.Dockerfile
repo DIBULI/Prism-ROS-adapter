@@ -1,6 +1,7 @@
 ARG ROS_DISTRO=humble
 ARG ROS_BASE=ros:${ROS_DISTRO}-ros-base
 FROM ${ROS_BASE} AS runtime
+ARG PRISM_APT_MIRROR=tsinghua
 ARG ROS_DISTRO
 ENV ROS_DISTRO=${ROS_DISTRO}
 SHELL ["/bin/bash", "-c"]

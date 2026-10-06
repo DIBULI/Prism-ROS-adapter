@@ -20,6 +20,7 @@ done
 # ROS_BASE may name a pre-pulled ARM64 image for an offline build.
 ROS_BASE="${PRISM_ROS_BASE:-ros:${DISTRO}-ros-base}"
 exec docker build --platform linux/arm64 \
+  --build-arg "PRISM_APT_MIRROR=${PRISM_APT_MIRROR:-tsinghua}" \
   --build-context "prism_sdk=${SDK_ROOT}" \
   --build-arg "ROS_DISTRO=${DISTRO}" --build-arg "ROS_BASE=${ROS_BASE}" \
   -f "${ROOT_DIR}/docker/ros2-rklocal.Dockerfile" \

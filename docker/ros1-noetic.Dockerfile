@@ -1,4 +1,5 @@
 FROM ros:noetic-ros-base
+ARG PRISM_APT_MIRROR=tsinghua
 
 SHELL ["/bin/bash", "-c"]
 

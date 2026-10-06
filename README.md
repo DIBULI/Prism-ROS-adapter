@@ -577,6 +577,9 @@ The build script first pulls ROS base images through `docker.1ms.run` and then
 tags them with the standard `ros:*` name. It falls back to DaoCloud if the
 primary pull does not finish within 15 minutes. Override the mirror prefixes
 with `PRISM_DOCKER_MIRROR` and `PRISM_DOCKER_MIRROR_FALLBACK` when needed.
+APT packages use the Tsinghua mirror by default. If it is unavailable, build with
+`PRISM_APT_MIRROR=upstream` to retain the base image's signed upstream sources.
+Hosted release builds use this option; package signature checks stay enabled.
 For Rolling, pin a tested image digest in production because both its API and
 base image move over time.
 

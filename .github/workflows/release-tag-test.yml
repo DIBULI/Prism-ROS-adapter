@@ -16,9 +16,10 @@ permissions:
   contents: read
 
 env:
-  # Hosted runners can pull Docker Hub directly; dependency packages still
-  # use the Tsinghua mirrors configured in the Dockerfiles.
+  # Hosted runners use upstream registries and signed package sources.
+  # Local Docker builds retain the regional mirror default.
   PRISM_DOCKER_MIRROR: docker.io/library
+  PRISM_APT_MIRROR: upstream
   PRISM_DOCKER_PULL_TIMEOUT_SECONDS: "90"
 
 concurrency:

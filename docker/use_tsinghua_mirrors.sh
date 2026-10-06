@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+case "${PRISM_APT_MIRROR:-tsinghua}" in
+  upstream) echo 'Keeping signed upstream APT sources from the base image'; exit 0 ;;
+  tsinghua) ;;
+  *) echo 'PRISM_APT_MIRROR must be tsinghua or upstream' >&2; exit 2 ;;
+esac
+
 # Run inside build containers only. Preserve suites, components, Signed-By
 # keys and signature verification for both .list and DEB822 .sources files.
 # https://mirrors.tuna.tsinghua.edu.cn/help/ubuntu/

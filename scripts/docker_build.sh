@@ -161,6 +161,7 @@ build_ros1() {
   sdk_root="$(sdk_root_for_distro noetic)"
   pull_ros_image noetic-ros-base
   docker build \
+    --build-arg "PRISM_APT_MIRROR=${PRISM_APT_MIRROR:-tsinghua}" \
     --platform "${DOCKER_PLATFORM}" \
     --build-context "prism_sdk=${sdk_root}" \
     -f "${ROOT_DIR}/docker/ros1-noetic.Dockerfile" \
@@ -173,6 +174,7 @@ build_ros2() {
   sdk_root="$(sdk_root_for_distro "${distro}")"
   pull_ros_image "${distro}-ros-base"
   docker build \
+    --build-arg "PRISM_APT_MIRROR=${PRISM_APT_MIRROR:-tsinghua}" \
     --platform "${DOCKER_PLATFORM}" \
     --build-context "prism_sdk=${sdk_root}" \
     --build-arg "ROS_DISTRO=${distro}" \
