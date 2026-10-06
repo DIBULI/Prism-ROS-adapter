@@ -5,6 +5,7 @@ prism_ros_driver:
     rklocal_socket: "/run/prism/stream.sock"
     topic_prefix: "/prism"
     navigation_enabled: true
+    gnss_raw_enabled: true
     # Explicit GPS-minus-UTC seconds for ADRNAV timestamps; -1 means unknown.
     gps_utc_leap_seconds: -1
     rover_rtcm_enabled: false
@@ -21,6 +22,8 @@ prism_ros_driver:
     lidar_netmask: "255.255.255.0"
     lidar_ip: "192.168.1.3"
     require_synchronized_timestamps: true
+    # Use reliable subscribers for loss-sensitive recording. False keeps best effort.
+    reliable_sensor_qos: true
     camera_frame_prefix: "prism_camera_"
     board_imu_frame_prefix: "prism_imu_"
     lidar_frame: "prism_lidar"

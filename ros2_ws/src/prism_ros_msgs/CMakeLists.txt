@@ -13,6 +13,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/TimeSyncRtkVersions.msg"
   "msg/TimeSyncCorsStatus.msg"
   "msg/GnssObservations.msg"
+  "msg/GnssRawData.msg"
   "msg/ReceiverPosition.msg"
   "srv/GetGnssReception.srv"
   "srv/GetRtkModuleStatus.srv"

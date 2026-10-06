@@ -28,6 +28,7 @@ struct DriverConfig {
   std::string device_serial;
   std::string rklocal_socket = "/run/prism/stream.sock";
   bool enable_navigation = true;
+  bool enable_gnss_raw = true;
   // -1 leaves receiver GPST-to-UTC conversion unknown; never guess leap seconds.
   int32_t gps_utc_leap_seconds = -1;
   bool enable_rover_rtcm = false;
@@ -266,6 +267,7 @@ struct DriverCallbacks {
   std::function<void(const GnssTimingStatusState&)> gnss;
   std::function<void(const ReceiverPositionState&)> receiver;
   std::function<void(const GnssObservationsState&)> observations;
+  std::function<void(const GnssRawState&)> gnss_raw;
   std::function<void(const GnssReceptionStatusState&)> reception;
   std::function<void(const TimeSyncRtkStatusState&)> rtk_module;
   std::function<void(const RtcmData&)> rover_rtcm;

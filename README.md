@@ -30,8 +30,9 @@ This repository pins Prism SDK `1.2.0` as the `third_party/Prism-SDK` Git
 submodule. It contains the Host SDK 1.2.0 runtime/ABI 18 required by Agent 1.2.0.
 The pinned [SDK v1.2.0](https://github.com/DIBULI/Prism-SDK/releases/tag/v1.2.0)
 includes the aligned RK-local C++ API and interface guides under `docs/`.
-This refresh adds SDK RTK workflow/continuous-position examples with English
-usage comments in their source; SDK libraries and ROS interfaces are unchanged.
+This refresh updates the SDK libraries and adds raw GNSS observation/ephemeris
+and module CORS topics. RTK workflow/continuous-position examples retain English
+usage comments in their source. Rebuild generated messages and consumers.
 The default build uses the Host USB client. A ROS 2 build with
 `-DPRISM_TRANSPORT=rklocal` instead links the ARM64 RK-local SDK; the two
 transports are separate binaries, not a runtime connection-mode toggle.
@@ -83,6 +84,10 @@ x86-64 host. Verify the submodule and all ROS runtime prefixes with:
 
 ## Published topics
 
+Raw receiver observations/ephemerides and module CORS output are described in
+[Raw GNSS and CORS topics](docs/gnss-raw.md). They require the matching updated SDK
+and device application; `gnss_raw_enabled` defaults to `true`.
+
 Paths below use the default `/prism` prefix. Types use ROS 1 notation;
 for ROS 2, insert `/msg/` between the package and message name.
 
@@ -96,6 +101,8 @@ for ROS 2, insert `/msg/` between the package and message name.
 | `/prism/gnss/timing` | `prism_ros_msgs/GnssTimingStatus` | External synchronization, PPS presence/validity/width, first-RMC delay, NMEA age and basic fix |
 | `/prism/gnss/reception` | `prism_ros_msgs/GnssReceptionStatus` | GNSS UART/NMEA freshness, accepted/rejected counts, UART errors and FIFO overflow |
 | `/prism/gnss/observations` | `prism_ros_msgs/GnssObservations` | Original receiver text sentences (including available RMC/GGA/GST/GSV/GSA/ADRNAV), with cursor, session and gap information |
+| `/prism/gnss/raw` | `prism_ros_msgs/GnssRawData` | Original receiver ASCII/binary bytes, including enabled observations and ephemerides, with receive-time and gap metadata |
+| `/prism/rtk/cors_rtcm` | `prism_ros_msgs/GnssRawData` | Module-received, CRC-accepted RTCM3 bytes with receive-time and gap metadata |
 | `/prism/gnss/receiver` | `prism_ros_msgs/ReceiverPosition` | Receiver GGA position, solution type, satellites, age, ellipsoidal height and epoch-matched GST standard deviations when available |
 | `/prism/gnss/fix` | `sensor_msgs/NavSatFix` | Standard GGA position; covariance is populated only when valid precision information is available |
 | `/prism/rtk/receiver` | `prism_ros_msgs/ReceiverPosition` | Independent receiver ADRNAV position, native solution type (including SINGLE/DGNSS/FLOAT/FIX), satellites, epoch and ENU standard deviations |
@@ -113,12 +120,14 @@ frames the receiver actually emits; it does not convert proprietary observations
 to RTCM. See [GNSS / RTK interfaces](docs/navigation.md) for freshness, covariance,
 timestamp and recording limitations.
 
-ROS 2 publishes the large compressed-image topics with reliable, volatile QoS
-and depth 2. Camera metadata, both IMU families and point clouds use the normal
-best-effort sensor-data profile; diagnostics are reliable. A custom ROS 2
-camera subscriber should therefore request reliable QoS. This preserves every
-complete MJPEG sample without applying back-pressure to the high-rate IMU and
-LiDAR topics.
+ROS 2 publishes compressed images with reliable, volatile QoS and depth 2.
+Camera metadata, both IMU families and point clouds also default to reliable,
+volatile delivery with independent bounded queues. Subscribers used for recording
+should request reliable QoS as well; best-effort subscribers remain compatible
+but do not request retransmission. `reliable_sensor_qos=false` restores best-effort
+metadata/IMU/point-cloud publishing for latency-first uses; camera and GNSS policies
+are unchanged. Reliable delivery reduces transport loss but cannot guarantee
+lossless recording when consumers or storage cannot keep up.
 
 The camera stamp is the sensor-board trigger edge. The adapter combines the
 small Agent LiDAR transport batches into fixed 100 ms windows and publishes

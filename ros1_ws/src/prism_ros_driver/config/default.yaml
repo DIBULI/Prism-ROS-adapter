@@ -1,6 +1,7 @@
 device_serial: ""
 topic_prefix: "/prism"
 navigation_enabled: true
+gnss_raw_enabled: true
 # Explicit GPS-minus-UTC seconds for ADRNAV timestamps; -1 means unknown.
 gps_utc_leap_seconds: -1
 rover_rtcm_enabled: false

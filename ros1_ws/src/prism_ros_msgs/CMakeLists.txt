@@ -9,6 +9,7 @@ add_message_files(FILES
   TimeSyncRtkVersions.msg
   TimeSyncCorsStatus.msg
   GnssObservations.msg
+  GnssRawData.msg
   ReceiverPosition.msg
   GnssTimingStatus.msg
   TimeSyncPortStatus.msg

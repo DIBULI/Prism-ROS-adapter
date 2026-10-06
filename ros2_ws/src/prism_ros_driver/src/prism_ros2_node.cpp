@@ -4,6 +4,7 @@
 #include <prism_ros_msgs/msg/time_sync_cors_status.hpp>
 #include <prism_ros_msgs/msg/gnss_observations.hpp>
 #include <prism_ros_msgs/msg/receiver_position.hpp>
+#include <prism_ros_msgs/msg/gnss_raw_data.hpp>
 #include <prism_ros_msgs/srv/get_gnss_reception.hpp>
 #include <prism_ros_msgs/srv/get_rtk_module_status.hpp>
 #include <prism_ros_msgs/srv/get_rtk_module_versions.hpp>
@@ -239,6 +240,7 @@ class PrismRos2Node : public rclcpp::Node {
   PrismRos2Node() : rclcpp::Node("prism_ros_driver") {
     prism_ros_adapter::DriverConfig config;
     config.enable_navigation = declare_parameter<bool>("navigation_enabled", true);
+    config.enable_gnss_raw = declare_parameter<bool>("gnss_raw_enabled", true);
     config.gps_utc_leap_seconds = declare_parameter<int>("gps_utc_leap_seconds", -1);
     config.enable_rover_rtcm = declare_parameter<bool>("rover_rtcm_enabled", false);
     config.device_serial = declare_parameter<std::string>("device_serial", "");
@@ -297,6 +299,16 @@ class PrismRos2Node : public rclcpp::Node {
     auto camera_qos = rclcpp::QoS(rclcpp::KeepLast(2))
                           .reliable()
                           .durability_volatile();
+    // Large point clouds and IMU packets can lose samples with best-effort
+    // delivery during simultaneous camera traffic. Keep independent bounded
+    // publisher queues, but request retransmission by default. Latency-first
+    // consumers may explicitly retain the previous best-effort policy.
+    const bool reliable_sensor_qos =
+        declare_parameter<bool>("reliable_sensor_qos", true);
+    const auto sensor_qos = [reliable_sensor_qos](size_t depth) {
+      auto qos = rclcpp::QoS(rclcpp::KeepLast(depth)).durability_volatile();
+      return reliable_sensor_qos ? qos.reliable() : qos.best_effort();
+    };
     for (size_t i = 0; i < camera_publishers_.size(); ++i) {
       camera_publishers_[i] =
           create_publisher<sensor_msgs::msg::CompressedImage>(
@@ -307,18 +319,18 @@ class PrismRos2Node : public rclcpp::Node {
     camera_metadata_publisher_ =
         create_publisher<prism_ros_msgs::msg::CameraFrameMetadata>(
             topic(topic_prefix_, "camera/metadata"),
-            rclcpp::SensorDataQoS().keep_last(8));
+            sensor_qos(8));
     for (size_t i = 0; i < board_imu_publishers_.size(); ++i) {
       board_imu_publishers_[i] = create_publisher<sensor_msgs::msg::Imu>(
           topic(topic_prefix_, "imu" + std::to_string(i) + "/data"),
-          rclcpp::SensorDataQoS().keep_last(512));
+          sensor_qos(512));
     }
     lidar_publisher_ = create_publisher<sensor_msgs::msg::PointCloud2>(
         topic(topic_prefix_, "lidar/points"),
-        rclcpp::SensorDataQoS().keep_last(4));
+        sensor_qos(4));
     lidar_imu_publisher_ = create_publisher<sensor_msgs::msg::Imu>(
         topic(topic_prefix_, "lidar/imu"),
-        rclcpp::SensorDataQoS().keep_last(256));
+        sensor_qos(256));
     diagnostics_publisher_ =
         create_publisher<diagnostic_msgs::msg::DiagnosticArray>(
             "/diagnostics", rclcpp::QoS(4).reliable());
@@ -343,6 +355,13 @@ class PrismRos2Node : public rclcpp::Node {
       observations_publisher_->publish(message);
     };
     callbacks.rover_rtcm = [this](const auto& value) { publishRoverRtcm(value); };
+    callbacks.gnss_raw = [this](const auto& value) {
+      prism_ros_msgs::msg::GnssRawData message;
+      prism_ros_adapter::copyGnssRaw(message,value);
+      message.header.stamp=rosTime(value.host_received_ns);
+      if(value.channel==0||value.channel==1) gnss_raw_publisher_->publish(message);
+      if(value.channel==0||value.channel==2) cors_raw_publisher_->publish(message);
+    };
     callbacks.camera = [this](const auto& value) { publishCamera(value); };
     callbacks.board_imu = [this](const auto& value) { publishBoardImu(value); };
     callbacks.lidar_points =
@@ -693,6 +712,8 @@ class PrismRos2Node : public rclcpp::Node {
     reception_publisher_ = create_publisher<prism_ros_msgs::msg::GnssReceptionStatus>(topic(topic_prefix_, "gnss/reception"), rclcpp::QoS(32).reliable());
     rtk_module_publisher_ = create_publisher<prism_ros_msgs::msg::TimeSyncRtkStatus>(topic(topic_prefix_, "rtk/status"), rclcpp::QoS(32).reliable());
     observations_publisher_ = create_publisher<prism_ros_msgs::msg::GnssObservations>(topic(topic_prefix_, "gnss/observations"), rclcpp::QoS(32).reliable());
+    gnss_raw_publisher_ = create_publisher<prism_ros_msgs::msg::GnssRawData>(topic(topic_prefix_, "gnss/raw"), rclcpp::QoS(1024).reliable());
+    cors_raw_publisher_ = create_publisher<prism_ros_msgs::msg::GnssRawData>(topic(topic_prefix_, "rtk/cors_rtcm"), rclcpp::QoS(1024).reliable());
     gnss_receiver_publisher_ = create_publisher<prism_ros_msgs::msg::ReceiverPosition>(topic(topic_prefix_, "gnss/receiver"), rclcpp::QoS(32).reliable());
     rtk_receiver_publisher_ = create_publisher<prism_ros_msgs::msg::ReceiverPosition>(topic(topic_prefix_, "rtk/receiver"), rclcpp::QoS(32).reliable());
     rover_rtcm_publisher_ = create_publisher<prism_ros_msgs::msg::RtcmData>(topic(topic_prefix_, "gnss/rover_rtcm"), rclcpp::QoS(1024).reliable());
@@ -1090,6 +1111,7 @@ class PrismRos2Node : public rclcpp::Node {
   rclcpp::Publisher<prism_ros_msgs::msg::GnssReceptionStatus>::SharedPtr reception_publisher_;
   rclcpp::Publisher<prism_ros_msgs::msg::TimeSyncRtkStatus>::SharedPtr rtk_module_publisher_;
   rclcpp::Publisher<prism_ros_msgs::msg::GnssObservations>::SharedPtr observations_publisher_;
+  rclcpp::Publisher<prism_ros_msgs::msg::GnssRawData>::SharedPtr gnss_raw_publisher_, cors_raw_publisher_;
   rclcpp::Publisher<prism_ros_msgs::msg::ReceiverPosition>::SharedPtr gnss_receiver_publisher_;
   rclcpp::Publisher<prism_ros_msgs::msg::ReceiverPosition>::SharedPtr rtk_receiver_publisher_;
   rclcpp::Publisher<prism_ros_msgs::msg::RtcmData>::SharedPtr rover_rtcm_publisher_;

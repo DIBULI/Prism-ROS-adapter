@@ -397,6 +397,9 @@ struct Driver::Impl {
         gnss_dispatch(1, callbacks.gnss),
         receiver_dispatch(8, callbacks.receiver),
         observations_dispatch(32, callbacks.observations),
+        raw_dispatch(4096, [this](const GnssRawState& v) {
+          if(callbacks.gnss_raw) { auto out=v;out.adapter_dropped_chunks=raw_dispatch.dropped();callbacks.gnss_raw(out); }
+        }),
         reception_dispatch(1, callbacks.reception),
         rtk_module_dispatch(1, callbacks.rtk_module),
         rover_dispatch(1024, callbacks.rover_rtcm),
@@ -854,6 +857,7 @@ struct Driver::Impl {
     gnss_dispatch.start();
     receiver_dispatch.start();
     observations_dispatch.start();
+    raw_dispatch.start();
     reception_dispatch.start();
     rtk_module_dispatch.start();
     rover_dispatch.start();
@@ -867,6 +871,7 @@ struct Driver::Impl {
     gnss_dispatch.stop();
     receiver_dispatch.stop();
     observations_dispatch.stop();
+    raw_dispatch.stop();
     reception_dispatch.stop();
     rtk_module_dispatch.stop();
     rover_dispatch.stop();
@@ -1146,6 +1151,8 @@ struct Driver::Impl {
       publishStatus(streamStateText(control_context));
       auto next_status = std::chrono::steady_clock::now();
       auto next_navigation = std::chrono::steady_clock::now();
+      auto next_raw=next_navigation;
+      uint64_t raw_cursor=0,raw_session=0;
       auto last_frame_received = std::chrono::steady_clock::now();
 #ifdef PRISM_ROS_RKLOCAL
       uint64_t reported_raw_drops = 0;
@@ -1201,6 +1208,31 @@ struct Driver::Impl {
         const auto now = std::chrono::steady_clock::now();
         // All SDK I/O stays on this thread; queries buffer stream frames in
         // the SDK, so ROS callbacks never race USB reads.
+        if(config.enable_gnss_raw && now>=next_raw) {
+          next_raw=now+std::chrono::milliseconds(50);
+          GnssRawState out;
+          out.host_received_ns=uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count());
+          try {
+            // Bounded pagination; raw navigation failure never stops acquisition.
+            for(unsigned page=0;page<4;++page) {
+              auto b=client.gnssRaw(raw_cursor,raw_session);
+              raw_cursor=b.cursor;raw_session=b.session;
+              out.session=b.session;out.cursor=b.cursor;out.device_monotonic_ms=b.device_monotonic_ms;
+              if(b.gap) {out.cache_gap=true;raw_dispatch.push(out);out.cache_gap=false;}
+              for(const auto& r:b.records) {
+                out.sequence=r.sequence;out.received_ms=r.received_ms;out.channel=uint8_t(r.channel);
+                out.flags=r.flags;out.lost_bytes=r.lost_bytes;out.data=r.data;raw_dispatch.push(out);
+              }
+              out.sequence=0;out.received_ms=0;out.channel=0;out.flags=0;out.lost_bytes=0;out.data.clear();
+              if(!b.more) break;
+            }
+          } catch(const std::exception& error) {
+            out.query_failed=true;out.data.clear();out.channel=0;raw_dispatch.push(out);
+            log(LogLevel::Warning,std::string("raw GNSS unavailable; other streams continue: ")+error.what());
+            next_raw=now+std::chrono::seconds(5);
+          }
+        }
         if (config.enable_navigation && now >= next_navigation) {
           try {
             receiver_model.timing = fromSdk(client.gnssTimingStatus());
@@ -1297,6 +1329,7 @@ struct Driver::Impl {
   ReceiverModel receiver_model;
   DispatchQueue<ReceiverPositionState> receiver_dispatch;
   DispatchQueue<GnssObservationsState> observations_dispatch;
+  DispatchQueue<GnssRawState> raw_dispatch;
   DispatchQueue<GnssReceptionStatusState> reception_dispatch;
   DispatchQueue<TimeSyncRtkStatusState> rtk_module_dispatch;
   DispatchQueue<RtcmData> rover_dispatch;

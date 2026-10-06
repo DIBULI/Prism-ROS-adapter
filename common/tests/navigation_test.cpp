@@ -17,6 +17,16 @@ bool close(double a, double b) { return std::abs(a - b) < 1e-8; }
 
 int main() {
   using namespace prism_ros_adapter;
+  GnssRawState raw, raw_copy;
+  raw.session=123; raw.sequence=456; raw.received_ms=789;
+  raw.device_monotonic_ms=800; raw.cursor=460;
+  raw.channel=2; raw.flags=5; raw.lost_bytes=17; raw.adapter_dropped_chunks=9;
+  raw.cache_gap=true; raw.query_failed=true; raw.data={0,0xd3,0xff,0x00,0xaa};
+  copyGnssRaw(raw_copy,raw);
+  require(raw_copy.session==123 && raw_copy.sequence==456 && raw_copy.received_ms==789);
+  require(raw_copy.device_monotonic_ms==800 && raw_copy.cursor==460 && raw_copy.channel==2);
+  require(raw_copy.flags==5 && raw_copy.lost_bytes==17 && raw_copy.adapter_dropped_chunks==9);
+  require(raw_copy.cache_gap && raw_copy.query_failed && raw_copy.data==raw.data);
   GnssTimingStatusState gnss;
   Fix fix;
   fillGnssFix(fix, gnss);

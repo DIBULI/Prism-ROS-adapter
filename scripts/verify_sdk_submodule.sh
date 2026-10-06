@@ -23,9 +23,11 @@ EXPECTED_PREFIX_FILES=(
   include/prism/usb/gnss_observation.hpp
   include/prism/usb/gnss_plot.hpp
   include/prism/usb/gnss_reception.hpp
+  include/prism/usb/gnss_raw.hpp
   include/prism/usb/gnss_reception_runtime_api.hpp
   include/prism/usb/lidar_points.hpp
   include/prism/usb/lidar_power.hpp
+  include/prism/usb/lidar_speed.hpp
   include/prism/usb/rtk.hpp
   include/prism/usb/timesync_port.hpp
   include/prism/usb/exposure.hpp

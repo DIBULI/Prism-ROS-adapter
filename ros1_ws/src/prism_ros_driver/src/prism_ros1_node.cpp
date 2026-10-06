@@ -4,6 +4,7 @@
 #include <prism_ros_msgs/TimeSyncCorsStatus.h>
 #include <prism_ros_msgs/GnssObservations.h>
 #include <prism_ros_msgs/ReceiverPosition.h>
+#include <prism_ros_msgs/GnssRawData.h>
 #include <prism_ros_msgs/GetGnssReception.h>
 #include <prism_ros_msgs/GetRtkModuleStatus.h>
 #include <prism_ros_msgs/GetRtkModuleVersions.h>
@@ -237,6 +238,7 @@ class PrismRos1Node {
   PrismRos1Node() : private_node_("~") {
     prism_ros_adapter::DriverConfig config;
     private_node_.param("navigation_enabled", config.enable_navigation, true);
+    private_node_.param("gnss_raw_enabled", config.enable_gnss_raw, true);
     private_node_.param("gps_utc_leap_seconds", config.gps_utc_leap_seconds, -1);
     private_node_.param("rover_rtcm_enabled", config.enable_rover_rtcm, false);
     private_node_.param("device_serial", config.device_serial, std::string{});
@@ -327,6 +329,13 @@ class PrismRos1Node {
       observations_publisher_.publish(message);
     };
     callbacks.rover_rtcm = [this](const auto& value) { publishRoverRtcm(value); };
+    callbacks.gnss_raw = [this](const auto& value) {
+      prism_ros_msgs::GnssRawData message;
+      prism_ros_adapter::copyGnssRaw(message,value);
+      message.header.stamp=rosTime(value.host_received_ns);
+      if(value.channel==0||value.channel==1) gnss_raw_publisher_.publish(message);
+      if(value.channel==0||value.channel==2) cors_raw_publisher_.publish(message);
+    };
     callbacks.camera = [this](const auto& value) { publishCamera(value); };
     callbacks.board_imu = [this](const auto& value) { publishBoardImu(value); };
     callbacks.lidar_points =
@@ -707,6 +716,8 @@ class PrismRos1Node {
     reception_publisher_ = node_.advertise<prism_ros_msgs::GnssReceptionStatus>(topic(topic_prefix_, "gnss/reception"), 32);
     rtk_module_publisher_ = node_.advertise<prism_ros_msgs::TimeSyncRtkStatus>(topic(topic_prefix_, "rtk/status"), 32);
     observations_publisher_ = node_.advertise<prism_ros_msgs::GnssObservations>(topic(topic_prefix_, "gnss/observations"), 32);
+    gnss_raw_publisher_ = node_.advertise<prism_ros_msgs::GnssRawData>(topic(topic_prefix_, "gnss/raw"), 1024);
+    cors_raw_publisher_ = node_.advertise<prism_ros_msgs::GnssRawData>(topic(topic_prefix_, "rtk/cors_rtcm"), 1024);
     gnss_receiver_publisher_ = node_.advertise<prism_ros_msgs::ReceiverPosition>(topic(topic_prefix_, "gnss/receiver"), 32);
     rtk_receiver_publisher_ = node_.advertise<prism_ros_msgs::ReceiverPosition>(topic(topic_prefix_, "rtk/receiver"), 32);
     rover_rtcm_publisher_ = node_.advertise<prism_ros_msgs::RtcmData>(topic(topic_prefix_, "gnss/rover_rtcm"), 1024);
@@ -1070,6 +1081,7 @@ class PrismRos1Node {
   ros::Publisher reception_publisher_;
   ros::Publisher rtk_module_publisher_;
   ros::Publisher observations_publisher_;
+  ros::Publisher gnss_raw_publisher_, cors_raw_publisher_;
   ros::Publisher gnss_receiver_publisher_;
   ros::Publisher rtk_receiver_publisher_;
   ros::Publisher rover_rtcm_publisher_;

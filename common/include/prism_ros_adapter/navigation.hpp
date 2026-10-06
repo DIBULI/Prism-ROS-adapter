@@ -6,6 +6,21 @@
 
 namespace prism_ros_adapter {
 
+struct GnssRawState {
+  uint64_t host_received_ns=0,session=0,sequence=0,received_ms=0,device_monotonic_ms=0,cursor=0;
+  uint8_t channel=0;
+  uint32_t flags=0;
+  uint64_t lost_bytes=0,adapter_dropped_chunks=0;
+  bool cache_gap=false,query_failed=false;
+  std::vector<uint8_t> data;
+};
+template<class M> void copyGnssRaw(M& m,const GnssRawState& v) {
+  m.session=v.session;m.sequence=v.sequence;m.received_ms=v.received_ms;
+  m.device_monotonic_ms=v.device_monotonic_ms;m.cursor=v.cursor;m.channel=v.channel;
+  m.flags=v.flags;m.lost_bytes=v.lost_bytes;m.adapter_dropped_chunks=v.adapter_dropped_chunks;
+  m.cache_gap=v.cache_gap;m.query_failed=v.query_failed;m.data=v.data;
+}
+
 struct GnssTimingStatusState {
   bool sensor_board_online{};
   bool gnss_input_mode{};
