@@ -2,7 +2,19 @@
 set -euo pipefail
 
 case "${PRISM_APT_MIRROR:-tsinghua}" in
-  upstream) echo 'Keeping signed upstream APT sources from the base image'; exit 0 ;;
+  upstream)
+    # Hosted runners can fail to fetch Ubuntu indexes over port 80. Keep the
+    # official hosts, suites and signing keys, but use their HTTPS endpoints.
+    # Leave ROS snapshot URLs unchanged (older distributions use snapshots).
+    while IFS= read -r -d '' source_file; do
+      sed --follow-symlinks -i -E \
+        -e 's#http://(([a-z]{2}\.)?archive.ubuntu.com|security.ubuntu.com)/ubuntu/?#https://\1/ubuntu/#g' \
+        -e 's#http://ports.ubuntu.com/ubuntu-ports/?#https://ports.ubuntu.com/ubuntu-ports/#g' \
+        "$source_file"
+    done < <(find -L /etc/apt -maxdepth 2 -type f \( -name '*.list' -o -name '*.sources' \) -print0)
+    echo 'Using HTTPS for signed upstream Ubuntu APT sources'
+    exit 0
+    ;;
   tsinghua) ;;
   *) echo 'PRISM_APT_MIRROR must be tsinghua or upstream' >&2; exit 2 ;;
 esac
