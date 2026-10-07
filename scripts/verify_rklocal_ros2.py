@@ -23,7 +23,7 @@ from sensor_msgs.msg import CompressedImage, Imu
 from prism_ros_msgs.msg import CameraFrameMetadata, GnssTimingStatus, TimeSyncRtkStatus
 from prism_ros_msgs.srv import (
     ControlStreams, SyncSystemTime, ControlRtk, SetCorsConfiguration,
-    SetTimeSyncPort, GetReceiverPosition,
+    SetTimeSyncPort, GetReceiverPosition, GetLidarSpeed, SetLidarSpeed,
 )
 
 
@@ -70,6 +70,9 @@ class MockAgent:
         self.streaming = False
         self.empty_observations = False
         self.observation_sequence = 0
+        self.speed_mode = 1
+        self.bad_speed_readback = False
+        self.drop_speed_reply = False
         self.thread = threading.Thread(target=self.run, daemon=True)
         self.thread.start()
 
@@ -136,6 +139,19 @@ class MockAgent:
             put(body, 4, 7)
             body[32] = 4
             self.send(0xB9, seq, body)
+        elif kind in (0x4C, 0x4D):
+            assert len(data)==12 and data[4]==2
+            assert 1 <= struct.unpack_from("<I", data, 8)[0] <= 10000
+            assert data[5] in ((0,) if kind==0x4C else (1,2))
+            if kind==0x4D:
+                self.speed_mode=data[5]
+            if self.drop_speed_reply:
+                return
+            body=status(16)
+            body[4]=2
+            body[5]=0 if self.bad_speed_readback else self.speed_mode
+            put(body,8,35)
+            self.send(0xC2,seq,body)
         elif kind == 0x0A:
             self.acks[struct.unpack_from("<I", data, 4)[0]] += 1
         elif kind != 0x0C:
@@ -238,7 +254,8 @@ def main():
         path = str(pathlib.Path(directory) / "stream.sock")
         mock = MockAgent(path)
         command = ["/opt/prism-ros2/lib/prism_ros_driver/prism_ros_driver_node",
-                   "--ros-args", "-p", f"rklocal_socket:={path}"]
+                   "--ros-args", "-p", f"rklocal_socket:={path}",
+                   "-p", "lidar_model:=mid360s"]
         # A file avoids blocking the driver on a full subprocess pipe.
         with tempfile.TemporaryFile(mode="w+") as output:
             process = subprocess.Popen(command, stdout=output, stderr=subprocess.STDOUT)
@@ -250,11 +267,22 @@ def main():
                 result = call(SyncSystemTime, "/prism/system/sync_time", request)
                 assert not result.success and "RK-local" in result.message, result.message
                 assert mock.commands[0x0D] == 0 and mock.commands[0x0E] == 0
+                # Active capture must not be silently stopped to change speed.
+                speed=SetLidarSpeed.Request()
+                speed.confirm, speed.mode, speed.timeout_ms=True, 2, 5000
+                result=call(SetLidarSpeed,"/prism/lidar/set_speed",speed)
+                assert not result.success and "stop all capture" in result.message
+                query=GetLidarSpeed.Request()
+                query.timeout_ms=3000
+                result=call(GetLidarSpeed,"/prism/lidar/get_speed",query)
+                assert not result.success and "stop all capture" in result.message
+                assert mock.commands[0x4C]==0 and mock.commands[0x4D]==0
                 # Unconfirmed mutating requests must not reach the SDK/Agent.
                 for service, name in (
                     (ControlRtk, "/prism/rtk/control"),
                     (SetCorsConfiguration, "/prism/rtk/set_cors"),
                     (SetTimeSyncPort, "/prism/system/set_timesync_port"),
+                    (SetLidarSpeed, "/prism/lidar/set_speed"),
                 ):
                     result = call(service, name, service.Request())
                     assert not result.success, name
@@ -282,6 +310,47 @@ def main():
                     if action != "stop":
                         previous = counts["camera0"]
                         spin_until(lambda: counts["camera0"] >= previous + 3)
+                result=call(GetLidarSpeed,"/prism/lidar/get_speed",query)
+                assert result.success and result.mode==1 and result.model==2 and result.device_type==35
+                for value in (0,10001):
+                    query.timeout_ms=value
+                    result=call(GetLidarSpeed,"/prism/lidar/get_speed",query)
+                    assert not result.success and "timeout_ms" in result.message
+                query.timeout_ms=3000
+                speed.confirm=False
+                result=call(SetLidarSpeed,"/prism/lidar/set_speed",speed)
+                assert not result.success and "confirm" in result.message
+                speed.confirm=True
+                for value in (0,3,255):
+                    speed.mode=value
+                    assert not call(SetLidarSpeed,"/prism/lidar/set_speed",speed).success
+                assert mock.commands[0x4D]==0
+                for value in (2,1):
+                    speed.mode=value
+                    result=call(SetLidarSpeed,"/prism/lidar/set_speed",speed)
+                    assert result.success and result.mode==value
+                    result=call(GetLidarSpeed,"/prism/lidar/get_speed",query)
+                    assert result.success and result.mode==value
+                # A device response is not success unless it validates.
+                before=mock.commands[0x4D]
+                mock.bad_speed_readback=True
+                speed.mode=2
+                result=call(SetLidarSpeed,"/prism/lidar/set_speed",speed)
+                assert not result.success and result.mode==0
+                assert mock.commands[0x4D]==before+1, "must not retry an ambiguous write"
+                mock.bad_speed_readback=False
+                result=call(GetLidarSpeed,"/prism/lidar/get_speed",query)
+                assert result.success and result.mode==2
+                # A write may take effect even when its response is lost.
+                before=mock.commands[0x4D]
+                mock.drop_speed_reply=True
+                speed.mode, speed.timeout_ms=1, 100
+                result=call(SetLidarSpeed,"/prism/lidar/set_speed",speed)
+                assert not result.success and result.mode==0
+                assert mock.commands[0x4D]==before+1
+                mock.drop_speed_reply=False
+                result=call(GetLidarSpeed,"/prism/lidar/get_speed",query)
+                assert result.success and result.mode==1
                 assert mock.acks and all(count == 1 for count in mock.acks.values()), mock.acks
                 assert mock.error is None, mock.error
                 print("PASS RK-local ROS2 mock:", dict(counts),

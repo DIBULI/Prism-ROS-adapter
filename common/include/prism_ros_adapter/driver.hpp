@@ -144,6 +144,12 @@ struct LidarPowerState {
   uint32_t vendor_state = 0;
 };
 
+struct LidarSpeedState {
+  uint8_t model = 0;
+  uint8_t mode = 0; // 0 unknown, 1 normal, 2 low; MID360S only.
+  uint32_t device_type = 0;
+};
+
 struct LidarNetworkState {
   bool enabled = false;
   std::string host_ip;
@@ -324,6 +330,8 @@ class Driver {
   LidarStatusState getLidarStatus();
   LidarPowerState getLidarPower(uint32_t timeout_ms);
   LidarPowerState setLidarStandby(bool standby, uint32_t timeout_ms);
+  LidarSpeedState getLidarSpeed(uint32_t timeout_ms);
+  LidarSpeedState setLidarSpeed(uint8_t mode, uint32_t timeout_ms);
   LidarNetworkState getLidarNetwork();
   LidarNetworkState setLidarNetwork(bool enabled, std::string host_ip,
                                     std::string netmask,

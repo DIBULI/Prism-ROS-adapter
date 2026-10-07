@@ -1,0 +1,13 @@
+# MID360S only. All capture streams must be stopped. No automatic wake/retry.
+# Hardware operation timeout in milliseconds, 1..10000.
+uint32 timeout_ms
+---
+bool success
+string message
+# Readback fields are valid only when success=true. Model: 2 MID360S.
+uint8 model
+uint8 UNKNOWN=0
+uint8 NORMAL=1
+uint8 LOW=2
+uint8 mode
+uint32 device_type

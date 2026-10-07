@@ -7,6 +7,7 @@
 #include "prism_ros_adapter/sdk_transport.hpp"
 #include "prism_ros_adapter/receiver_model.hpp"
 #include "prism_ros_adapter/lidar_conversion.hpp"
+#include "prism_ros_adapter/lidar_speed_control.hpp"
 
 #include <algorithm>
 #include <array>
@@ -1652,6 +1653,22 @@ LidarPowerState Driver::setLidarStandby(bool standby, uint32_t timeout_ms) {
       throw std::logic_error("stop all capture streams before changing LiDAR power");
     const auto s = context.client.setLidarStandby(toSdkModel(impl_->config.lidar_model), standby, timeout_ms);
     return LidarPowerState{static_cast<uint8_t>(s.model), static_cast<uint8_t>(s.state), s.vendor_state};
+  });
+}
+
+LidarSpeedState Driver::getLidarSpeed(uint32_t timeout_ms) {
+  return impl_->invokeControl<LidarSpeedState>([this, timeout_ms](auto& context) {
+    return detail::lidarSpeedOperation(context.client, impl_->config.lidar_model,
+        context.video_started || context.imu_started || context.lidar_started,
+        timeout_ms);
+  });
+}
+
+LidarSpeedState Driver::setLidarSpeed(uint8_t mode, uint32_t timeout_ms) {
+  return impl_->invokeControl<LidarSpeedState>([this, mode, timeout_ms](auto& context) {
+    return detail::lidarSpeedOperation(context.client, impl_->config.lidar_model,
+        context.video_started || context.imu_started || context.lidar_started,
+        timeout_ms, mode);
   });
 }
 

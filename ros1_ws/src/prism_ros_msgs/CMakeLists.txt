@@ -24,6 +24,8 @@ add_message_files(FILES
   WifiHotspotStatus.msg
 )
 add_service_files(FILES
+  GetLidarSpeed.srv
+  SetLidarSpeed.srv
   GetLidarPower.srv
   SetLidarStandby.srv
   GetGnssReception.srv

@@ -192,6 +192,8 @@ and service name.
 | `/prism/lidar/get_status` | `prism_ros_msgs/GetLidarStatus` | Read the live LiDAR model, connection/receive state, address, serial, packet/point counters, and errors |
 | `/prism/lidar/get_power` | `prism_ros_msgs/GetLidarPower` | Read hardware power state without waking; all capture streams must be stopped |
 | `/prism/lidar/set_standby` | `prism_ros_msgs/SetLidarStandby` | Independent hardware standby/wake; requires confirmation and idle streams; never automatically resumes capture |
+| `/prism/lidar/get_speed` | `prism_ros_msgs/GetLidarSpeed` | Read MID360S normal/low speed; all capture streams must be stopped |
+| `/prism/lidar/set_speed` | `prism_ros_msgs/SetLidarSpeed` | Set MID360S normal (`1`) / low (`2`) speed with confirmed readback; requires `confirm: true` and idle streams; no automatic retries |
 | `/prism/lidar/get_network` | `prism_ros_msgs/GetLidarNetwork` | Read the persisted LiDAR network configuration and current interface/link/subnet/reachability state |
 | `/prism/lidar/set_network` | `prism_ros_msgs/SetLidarNetwork` | Persist LiDAR enable, host IPv4, netmask, and LiDAR IPv4 settings |
 | `/prism/lidar/probe_network` | `prism_ros_msgs/ProbeLidarNetwork` | Apply/check the configured host interface and test whether the LiDAR target is reachable |
@@ -257,6 +259,8 @@ exit status.
 | `lidar/get_status` | none | Safe during streaming; returns model, live receive state, serial/IP, and counters. |
 | `lidar/get_power` | `timeout_ms` | Idle only; fresh hardware state, not receive state. Timeout 1..30000 ms. |
 | `lidar/set_standby` | `confirm`, `standby`, `timeout_ms` | Idle only. True enters standby; false wakes; no automatic capture start. See [usage and limitations](docs/lidar-power.md). |
+| `lidar/get_speed` | `timeout_ms` | MID360S and idle streams only. Read back normal/low mode. |
+| `lidar/set_speed` | `confirm`, `mode`, `timeout_ms` | MID360S and idle streams only. `1` normal, `2` low; timeout 1..10000 ms. See [commands and limitations](docs/lidar-power.md#mid360s-normal--low-speed). |
 | `lidar/get_network` | none | Returns saved network values and the current `end0`-side interface/link status. It briefly pauses and restores streams. |
 | `lidar/set_network` | `confirm`, `enabled`, `host_ip`, `netmask`, `lidar_ip` | Persists all LiDAR-network fields as one configuration. Select the LiDAR model separately with `lidar_model` in the startup YAML. |
 | `lidar/probe_network` | none | Applies/checks the host-side configuration and reports `same_subnet` and `target_reachable`. |
