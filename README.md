@@ -1,5 +1,9 @@
 # Prism ROS Adapter
 
+Adapter and message source: [Apache-2.0](LICENSE). The SDK core remains
+proprietary; see [license scope](LICENSING.md) and
+[third-party notices](THIRD_PARTY_NOTICES.md).
+
 [![ROS release tag test](https://github.com/DIBULI/Prism-ROS-adapter/actions/workflows/release-tag-test.yml/badge.svg)](https://github.com/DIBULI/Prism-ROS-adapter/actions/workflows/release-tag-test.yml)
 
 Prism ROS Adapter exposes DIBULI Prism data as standard ROS topics. The shared

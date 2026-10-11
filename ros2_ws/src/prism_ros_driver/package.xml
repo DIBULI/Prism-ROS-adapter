@@ -4,7 +4,7 @@
   <version>1.2.0</version>
   <description>ROS 2 adapter for the DIBULI Prism USB and RK-local SDKs.</description>
   <maintainer email="support@dibuli.com">DIBULI</maintainer>
-  <license>Proprietary</license>
+  <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
   <depend>diagnostic_msgs</depend>

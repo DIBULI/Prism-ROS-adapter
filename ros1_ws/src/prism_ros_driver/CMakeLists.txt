@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.10)
 project(prism_ros_driver)
 
+include("${CMAKE_CURRENT_SOURCE_DIR}/../../../common/cmake/InstallLicenses.cmake")
+
 find_package(catkin REQUIRED COMPONENTS
   diagnostic_msgs
   prism_ros_msgs

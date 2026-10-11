@@ -4,7 +4,7 @@
   <version>1.2.0</version>
   <description>ROS 1 Noetic adapter for the DIBULI Prism USB SDK.</description>
   <maintainer email="support@dibuli.com">DIBULI</maintainer>
-  <license>Proprietary</license>
+  <license>Apache-2.0</license>
 
   <buildtool_depend>catkin</buildtool_depend>
   <depend>diagnostic_msgs</depend>

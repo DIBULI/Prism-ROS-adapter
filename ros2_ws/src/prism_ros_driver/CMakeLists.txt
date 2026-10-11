@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.10)
 project(prism_ros_driver)
 
+include("${CMAKE_CURRENT_SOURCE_DIR}/../../../common/cmake/InstallLicenses.cmake")
+
 find_package(ament_cmake REQUIRED)
 if("$ENV{ROS_DISTRO}" STREQUAL "humble")
   # Prime Humble's generated ament library resolver. On AArch64/QEMU its

@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.0.2)
 project(prism_ros_msgs)
 
+include("${CMAKE_CURRENT_SOURCE_DIR}/../../../common/cmake/InstallLicenses.cmake")
+
 find_package(catkin REQUIRED COMPONENTS message_generation std_msgs)
 
 add_message_files(FILES
