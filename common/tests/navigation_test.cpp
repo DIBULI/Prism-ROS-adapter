@@ -63,6 +63,18 @@ int main() {
   require(copy.time_synced && copy.offset_fresh && copy.message_pps_offset_us == 800000);
   require(copy.pps_valid && copy.pps_high_width_us == 499990);
 
+  // Preserve the device's 5 ms qualification and short-pulse telemetry.
+  gnss.pps_min_high_us = 5000;
+  gnss.pps_high_width_us = 5000;
+  copyGnssTimingStatus(copy, gnss);
+  require(copy.pps_valid && copy.pps_min_high_us == 5000 &&
+          copy.pps_high_width_us == 5000);
+  gnss.pps_valid = false;
+  gnss.pps_high_width_us = 4999;
+  copyGnssTimingStatus(copy, gnss);
+  require(!copy.pps_valid && copy.pps_min_high_us == 5000 &&
+          copy.pps_high_width_us == 4999);
+
   ReceiverPositionState rtk;
   fillReceiverFix(fix, rtk);
   require(fix.status.status == -1);

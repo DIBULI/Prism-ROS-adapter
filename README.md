@@ -1,6 +1,15 @@
 # Prism ROS Adapter
 
-[![ROS release tag test](https://github.com/DIBULI/Prism-ROS-adapter/actions/workflows/release-tag-test.yml/badge.svg)](https://github.com/DIBULI/Prism-ROS-adapter/actions/workflows/release-tag-test.yml)
+## This 1.2.1 PPS5 distribution
+
+This source archive bundles only the Linux x64 USB SDK 1.2.1. It matches
+Agent 1.2.1 / Sensor Board 0.4.28 (41M3, legacy 0.4.27 baseline plus PPS >=5 ms).
+ROS 2 Jazzy was built and serialization-tested; ROS 1 Noetic source/dependencies
+were updated but were not rebuilt in a Noetic environment. 41M3 USB and Web acquisition/recording were physically tested; the ROS node itself was not hardware-tested.
+See `RELEASE-1.2.1.txt` for local build instructions and scope. The general
+platform/distribution descriptions below describe upstream support, not fresh validation.
+
+[![ROS release tag test](https://github.com/DIBULI/Prism-ROS-adapter/actions/workflows/pps5-maintenance.yml/badge.svg)](https://github.com/DIBULI/Prism-ROS-adapter/actions/workflows/pps5-maintenance.yml)
 
 Prism ROS Adapter exposes DIBULI Prism data as standard ROS topics. The shared
 driver supports the Host USB SDK (ROS 1/2) and the RK-local SDK (ROS 2 on RK
@@ -24,15 +33,11 @@ OpenSSL is statically embedded so the same `.so` works across the supported
 Ubuntu releases. ARM64 uses one static SDK archive and resolves OpenSSL, libusb,
 libstdc++ and glibc while building in the target ROS environment.
 
-## Prism SDK Git submodule
+## Bundled Prism SDK
 
-This repository pins Prism SDK `1.2.0` as the `third_party/Prism-SDK` Git
-submodule. It contains the Host SDK 1.2.0 runtime/ABI 18 required by Agent 1.2.0.
-The pinned [SDK v1.2.0](https://github.com/DIBULI/Prism-SDK/releases/tag/v1.2.0)
-includes the aligned RK-local C++ API and interface guides under `docs/`.
-This refresh updates the SDK libraries and adds raw GNSS observation/ephemeris
-and module CORS topics. RTK workflow/continuous-position examples retain English
-usage comments in their source. Rebuild generated messages and consumers.
+This maintenance branch pins Host SDK 1.2.1 (runtime ABI 18)
+under `third_party/Prism-SDK` to commit `d6cc895e858dc2a8189fe043a291b5f977744fd3`. ROS messages, topics and driver behavior are unchanged from 1.2.0.
+Only the matched SDK dependency/version and PPS telemetry regression tests changed.
 The default build uses the Host USB client. A ROS 2 build with
 `-DPRISM_TRANSPORT=rklocal` instead links the ARM64 RK-local SDK; the two
 transports are separate binaries, not a runtime connection-mode toggle.
@@ -41,13 +46,14 @@ This adapter does not provide offline dataset downloads (no service, topic or
 CLI). SDK raw-file export is for SDK/Viewer consumers; ROS bag conversion is a
 Viewer function, separate from this live ROS adapter.
 
-Use Agent 1.2.0 and Sensor Board 0.4.27. Do not mix SDK headers and libraries
+Use Agent 1.2.1 and Sensor Board 0.4.28. Do not mix SDK headers and libraries
 from different versions.
 
-Clone recursively:
+Release archives already bundle the matching SDK. Git clones should use
+`git submodule update --init --recursive` to obtain the pinned maintenance SDK:
 
 ```bash
-git clone --recurse-submodules git@github.com:DIBULI/Prism-ROS-adapter.git
+git clone --branch codex/maintenance-1.2.1-pps5ms --recurse-submodules git@github.com:DIBULI/Prism-ROS-adapter.git
 ```
 
 For an existing checkout, initialize the exact pinned SDK commit with:
@@ -72,14 +78,12 @@ The supported binary mapping is:
 | x86-64 | All supported distributions | `runtime/ros/linux-x64` |
 | ARM64 | All supported distributions | `runtime/ros/linux-arm64` |
 
-Both platform payloads are part of the pinned Prism SDK `1.2.0` release and include
-the Host SDK 1.2.0 runtime (Runtime API 18), retaining `800 Hz` IMU support. The
-build scripts detect x86-64 or ARM64 automatically;
-`PRISM_ROS_ARCH=arm64` can be used when building ARM64 through emulation on an
-x86-64 host. Verify the submodule and all ROS runtime prefixes with:
+This archive includes only the x86-64 USB payload. ARM64 and RK-local binaries
+are not included; do not substitute older libraries. Existing 800 Hz IMU
+support is unchanged. Verify the bundled runtime prefix with:
 
 ```bash
-./scripts/verify_sdk_submodule.sh all
+./scripts/verify_sdk_submodule.sh linux-x64
 ```
 
 ## Published topics
@@ -352,18 +356,18 @@ lidar: true"
 ```
 
 
-## GNSS / CORS / RTK in v1.2.0
+## GNSS / CORS / RTK in v1.2.1
 
 See [the current topic/service guide](docs/navigation.md) for receiver-native
 GGA/ADRNAV results, covariance, GPST/UTC timestamps, reception diagnostics,
 RTK-module versions, CORS account configuration and explicit start/stop.
 The old RK solver raw/smoothed messages and Host correction input are removed.
-See [v1.2.0 breaking changes](docs/update/v1.2.0.md) before upgrading.
+See [v1.2.1 breaking changes](docs/update/v1.2.1.md) before upgrading.
 
 ## Prerequisites
 
 1. Prism Agent and Host USB SDK runtime must have exactly the same version.
-   This adapter pins Prism SDK `1.2.0` and therefore requires Agent `1.2.0`.
+   This adapter pins Prism SDK `1.2.1` and therefore requires Agent `1.2.1`.
 2. Select the SDK submodule runtime prefix for the host using the table above and
    install that complete binary prefix under `/opt/prism-sdk`. For example,
    on x86-64:
@@ -675,8 +679,8 @@ python3 scripts/verify_lidar_pointcloud_ros2.py
 
 ## Update notes
 
-- [Version 1.2.0](docs/update/v1.2.0.md)
-- [版本 1.2.0（中文）](docs/update/v1.2.0.zh-CN.md)
+- [Version 1.2.1](docs/update/v1.2.1.md)
+- [版本 1.2.1（中文）](docs/update/v1.2.1.zh-CN.md)
 
 - [Version 1.0.1](docs/update/v1.0.1.md)
 - [版本 1.0.1（中文）](docs/update/v1.0.1.zh-CN.md)
@@ -685,7 +689,7 @@ python3 scripts/verify_lidar_pointcloud_ros2.py
 
 ## Release-tag CI
 
-Pushing a tag matching `v*` runs `.github/workflows/release-tag-test.yml`.
+Pushing a tag matching `v*` runs `.github/workflows/pps5-maintenance.yml`.
 The workflow checks that the tag version matches all four ROS package
 manifests, runs the ROS-independent unit tests, then builds and smoke-tests
 ROS 1 Noetic and every supported ROS 2 distribution on both x86-64 and native

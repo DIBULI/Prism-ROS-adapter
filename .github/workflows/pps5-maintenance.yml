@@ -1,0 +1,17 @@
+name: PPS5 maintenance validation
+on:
+  push:
+    branches: ["codex/maintenance-1.2.1-pps5ms"]
+    tags: ["v1.2.1-pps5ms"]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - run: bash scripts/verify_sdk_submodule.sh linux-x64
+      - run: cmake -S . -B build -DBUILD_TESTING=ON && cmake --build build -j2 && ctest --test-dir build --output-on-failure

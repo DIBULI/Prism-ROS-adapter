@@ -1,11 +1,11 @@
 cmake_minimum_required(VERSION 3.16)
-project(prism_ros_adapter_common VERSION 1.2.0 LANGUAGES CXX)
+project(prism_ros_adapter_common VERSION 1.2.1 LANGUAGES CXX)
 
 include(CTest)
 
 if(BUILD_TESTING)
   set(PRISM_SDK_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/third_party/Prism-SDK"
-      CACHE PATH "Pinned SDK 1.2.0 root")
+      CACHE PATH "Pinned SDK 1.2.1 root")
   add_executable(prism-lidar-speed-control-test common/tests/lidar_speed_control_test.cpp)
   target_compile_features(prism-lidar-speed-control-test PRIVATE cxx_std_17)
   target_include_directories(prism-lidar-speed-control-test PRIVATE common/include "${PRISM_SDK_ROOT}/include")

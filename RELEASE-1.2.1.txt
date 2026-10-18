@@ -1,0 +1,32 @@
+Prism ROS Adapter 1.2.1 — PPS >=5 ms, Linux x64 USB source distribution
+
+Matches Agent 1.2.1 and Sensor Board 0.4.28 (41M3 legacy-baseline PPS5 build).
+The archive includes matching Host SDK headers and Linux x64 binaries.
+ROS message/service layouts, topic names and driver behavior are unchanged.
+Do not fetch the historical SDK submodule over this bundled copy.
+Maintenance release tag: v1.2.1-pps5ms; SDK Git submodule pin: d6cc895e858dc2a8189fe043a291b5f977744fd3.
+
+Validation performed:
+- Shared C++ tests and ROS1/ROS2 message/service parity: 8/8 passed.
+- PPS 4999/5000/5001 us telemetry serialization: passed on ROS2 Jazzy.
+- ROS2 Jazzy msgs and USB driver: compiled successfully on Ubuntu 24.04.
+- 41M3 USB/Web hardware tested; ROS node hardware runtime and ROS1 Noetic not tested.
+- Other ROS distributions, ARM64 and RK-local binaries are not newly validated
+  or included by this Linux x64 package.
+
+Build ROS2 Jazzy (inside the extracted archive):
+  source /opt/ros/jazzy/setup.bash
+  bash scripts/verify_sdk_submodule.sh linux-x64
+  colcon build --base-paths ros2_ws/src --build-base build-jazzy \
+    --install-base install-jazzy --cmake-args \
+    -DCMAKE_BUILD_TYPE=Release -DPRISM_TRANSPORT=usb
+  source install-jazzy/setup.bash
+  python3 scripts/verify_navigation_ros2.py
+
+Standard ROS2 build dependencies must already be installed. CMake resolves the
+bundled SDK from third_party/Prism-SDK/runtime/ros/linux-x64. Check README.md
+and launch files for normal node use. Merely building does not open a device.
+
+ROS1 Noetic: source and exact SDK dependency are updated to 1.2.1. Build within
+your existing Noetic environment using the repository instructions; do not treat
+the Jazzy build as a Noetic binary or as proof of Noetic runtime validation.

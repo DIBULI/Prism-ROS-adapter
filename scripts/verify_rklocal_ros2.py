@@ -86,7 +86,7 @@ class MockAgent:
             body = bytearray(108)
             struct.pack_into("<HHI", body, 0, 1, 18, 8 * 1024 * 1024)
             body[8:19] = b"prism-agent"
-            body[40:45] = b"1.2.0"
+            body[40:45] = b"1.2.1"
             body[92:98] = b"0.4.27"
             self.send(0x81, seq, body)
         elif kind == 4:

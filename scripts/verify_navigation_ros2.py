@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline ROS2 v1.2.0 serialization checks. Does not open a device."""
+"""Offline ROS2 v1.2.1 serialization checks. Does not open a device."""
 from rclpy.serialization import deserialize_message, serialize_message
 from prism_ros_msgs.msg import (GnssTimingStatus, GnssReceptionStatus,
     ReceiverPosition, GnssObservations, TimeSyncRtkStatus, TimeSyncRtkVersions,
@@ -15,6 +15,13 @@ gnss.time_synced, gnss.offset_fresh = True, True
 gnss.message_pps_offset_us, gnss.nmea_age_ms = 800000, 455360
 assert roundtrip(gnss).message_pps_offset_us == 800000
 assert roundtrip(gnss).nmea_age_ms == 455360
+gnss.pps_min_high_us = 5000
+for width, valid in ((4999, False), (5000, True), (5001, True)):
+    gnss.pps_high_width_us, gnss.pps_valid = width, valid
+    restored = roundtrip(gnss)
+    assert restored.pps_min_high_us == 5000
+    assert restored.pps_high_width_us == width
+    assert restored.pps_valid == valid
 position = ReceiverPosition()
 position.source, position.solution, position.time_system = 'ADRNAV', 'NARROW_FLOAT', 'GPST'
 position.quality, position.valid = 5, True
@@ -57,4 +64,4 @@ assert roundtrip(exposure).enabled
 raw = RtcmData()
 raw.data = list(range(256)) * 64
 assert bytes(roundtrip(raw).data) == bytes(raw.data)
-print('PASS: v1.2.0 receiver/module/CORS/control/RTCM serialization and write-only password')
+print('PASS: v1.2.1 receiver/module/CORS/control/RTCM serialization and write-only password')
