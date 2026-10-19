@@ -1,0 +1,115 @@
+# Native rosbag2 recorder subscription QoS; not driver publisher settings.
+# Requires Reliable publishers and the default /prism topic prefix.
+# Copy and edit exact topic names/policies for a different configuration.
+# These finite queues absorb short bursts, not arbitrary stalls or outages.
+
+# High-rate IMUs: 2048 samples are about 2.56 seconds at 800 Hz.
+/prism/imu0/data:
+  history: keep_last
+  depth: 2048
+  reliability: reliable
+  durability: volatile
+/prism/imu1/data:
+  history: keep_last
+  depth: 2048
+  reliability: reliable
+  durability: volatile
+/prism/lidar/imu:
+  history: keep_last
+  depth: 2048
+  reliability: reliable
+  durability: volatile
+
+# Large image/point-cloud messages: keep memory bounded per topic.
+/prism/camera0/image/compressed:
+  history: keep_last
+  depth: 64
+  reliability: reliable
+  durability: volatile
+/prism/camera1/image/compressed:
+  history: keep_last
+  depth: 64
+  reliability: reliable
+  durability: volatile
+/prism/camera2/image/compressed:
+  history: keep_last
+  depth: 64
+  reliability: reliable
+  durability: volatile
+/prism/camera3/image/compressed:
+  history: keep_last
+  depth: 64
+  reliability: reliable
+  durability: volatile
+/prism/lidar/points:
+  history: keep_last
+  depth: 64
+  reliability: reliable
+  durability: volatile
+
+# Camera metadata, GNSS/RTK data and status, and diagnostics.
+/prism/camera/metadata:
+  history: keep_last
+  depth: 256
+  reliability: reliable
+  durability: volatile
+/prism/gnss/timing:
+  history: keep_last
+  depth: 256
+  reliability: reliable
+  durability: volatile
+/prism/gnss/reception:
+  history: keep_last
+  depth: 256
+  reliability: reliable
+  durability: volatile
+/prism/gnss/observations:
+  history: keep_last
+  depth: 256
+  reliability: reliable
+  durability: volatile
+/prism/gnss/raw:
+  history: keep_last
+  depth: 256
+  reliability: reliable
+  durability: volatile
+/prism/rtk/cors_rtcm:
+  history: keep_last
+  depth: 256
+  reliability: reliable
+  durability: volatile
+/prism/gnss/receiver:
+  history: keep_last
+  depth: 256
+  reliability: reliable
+  durability: volatile
+/prism/gnss/fix:
+  history: keep_last
+  depth: 256
+  reliability: reliable
+  durability: volatile
+/prism/rtk/receiver:
+  history: keep_last
+  depth: 256
+  reliability: reliable
+  durability: volatile
+/prism/rtk/fix:
+  history: keep_last
+  depth: 256
+  reliability: reliable
+  durability: volatile
+/prism/rtk/status:
+  history: keep_last
+  depth: 256
+  reliability: reliable
+  durability: volatile
+/prism/gnss/rover_rtcm:
+  history: keep_last
+  depth: 256
+  reliability: reliable
+  durability: volatile
+/diagnostics:
+  history: keep_last
+  depth: 256
+  reliability: reliable
+  durability: volatile
