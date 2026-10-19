@@ -4,6 +4,9 @@ project(prism_ros_adapter_common VERSION 1.2.0 LANGUAGES CXX)
 include(CTest)
 
 if(BUILD_TESTING)
+  find_package(Python3 REQUIRED COMPONENTS Interpreter)
+  add_test(NAME recording-qos
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/common/tests/recording_qos_test.py)
   set(PRISM_SDK_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/third_party/Prism-SDK"
       CACHE PATH "Pinned SDK 1.2.0 root")
   add_executable(prism-lidar-speed-control-test common/tests/lidar_speed_control_test.cpp)

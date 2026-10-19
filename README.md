@@ -163,6 +163,84 @@ need raw images can use `image_transport`/`compressed_image_transport`. Camera
 calibration is not invented by the driver; publish the calibrated
 `CameraInfo` from your calibration package.
 
+## ROS 2 recording with deeper sensor queues
+
+Use native `ros2 bag record`; no extra recording wrapper or monitor is needed.
+The recorder's subscriber history is independent of the driver's publisher
+history. Reliable delivery alone does not provide an unlimited buffer.
+
+The installed [`recording_qos.yaml`](ros2_ws/src/prism_ros_driver/config/recording_qos.yaml)
+covers **all 21 published sensor/diagnostic topics** with
+`keep_last`, `reliable` and `volatile` policies:
+
+| Recorded topics | Depth per topic (messages) |
+| --- | ---: |
+| Board IMUs `/prism/imu0/data`, `/prism/imu1/data`; LiDAR IMU `/prism/lidar/imu` | 2048 |
+| Four camera `image/compressed` topics; `/prism/lidar/points` | 64 |
+| Camera metadata; all GNSS/RTK data and status topics; `/diagnostics` | 256 |
+
+At 800 Hz, 2048 IMU samples cover about **2.56 seconds**. A 64-message camera
+queue covers about 2.13 seconds at 30 FPS; a 64-cloud queue covers about 6.4
+seconds at 10 Hz. Large images/clouds have deliberately smaller queues than
+IMUs: memory grows with message size and the number of subscribed topics.
+
+After updating the source, rebuild and source your ROS workspace so the new
+YAML is installed under `share/prism_ros_driver/config/`. In a second terminal
+with the ROS environment and workspace sourced, record all topics:
+
+```bash
+ros2 bag record -a -o ./capture_bag \
+  --qos-profile-overrides-path "$(ros2 pkg prefix --share prism_ros_driver)/config/recording_qos.yaml" \
+  --max-cache-size 134217728
+```
+
+To record only LiDAR points and board IMU0 (using the same preset):
+
+```bash
+ros2 bag record /prism/lidar/points /prism/imu0/data -o ./lidar_imu0_bag \
+  --qos-profile-overrides-path "$(ros2 pkg prefix --share prism_ros_driver)/config/recording_qos.yaml" \
+  --max-cache-size 134217728
+```
+
+To create subscriptions before recording begins, use the native paused-start
+option in ROS 2 Humble. Press SPACE to resume/pause; use Ctrl-C to stop cleanly
+and finalize the bag:
+
+```bash
+ros2 bag record --start-paused -a -o ./capture_bag_paused \
+  --qos-profile-overrides-path "$(ros2 pkg prefix --share prism_ros_driver)/config/recording_qos.yaml" \
+  --max-cache-size 134217728
+```
+
+Paused intervals are intentionally not recorded; resuming does not backfill
+them. Use a **new output directory** for every recording. Confirm topic
+discovery/subscription before the measurement of interest begins. You can
+inspect the completed bag with `ros2 bag info ./capture_bag`.
+
+The override applies only when `--qos-profile-overrides-path` is passed; it
+does not change global rosbag2 defaults, driver publishing queues, firmware,
+sensor rates or timestamps. Unknown/non-Prism topics recorded by `-a` retain
+rosbag2 defaults. Absent sensors are not enabled by listing them in the file.
+
+Keep the driver's default `reliable_sensor_qos: true`. A Reliable subscriber
+cannot match a Best Effort publisher. For Best Effort publishers, a non-default
+topic prefix, remapped topics or multiple devices, copy the YAML and change
+the exact topic keys/policies, then pass that file instead. `/diagnostics`
+does not follow `topic_prefix`.
+
+`depth` counts **messages**; `--max-cache-size` counts **bytes** in a separate
+storage-writer cache. In Humble the 128 MiB value above is per buffer, with
+double buffering using up to about 256 MiB, **in addition to** DDS message
+queues and other memory. Inspect RAM/CPU/storage load and tune these bounded
+values for your workload; increasing depth is not a fix for sustained overload.
+
+Deep queues absorb short bursts but cannot guarantee lossless recording during
+long stalls, USB/network outages, or startup/shutdown. Check recorded source
+timestamps, sequence IDs when available and message counts. `ros2 topic hz`
+measures arrival behavior and is not a completeness audit; Reliable QoS and
+silence in the driver log do not prove that a downstream bag contains every
+sample.
+
 ## Services
 
 ROS 1 and ROS 2 expose the same device-control services. Every SDK command is
