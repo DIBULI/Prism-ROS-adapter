@@ -4,7 +4,14 @@ Matches Agent 1.2.1 and Sensor Board 0.4.28 (41M3 legacy-baseline PPS5 build).
 The archive includes matching Host SDK headers and Linux x64 binaries.
 ROS message/service layouts, topic names and driver behavior are unchanged.
 Do not fetch the historical SDK submodule over this bundled copy.
-Maintenance release tag: v1.2.1-pps5ms; SDK Git submodule pin: d6cc895e858dc2a8189fe043a291b5f977744fd3.
+Maintenance release tag: v1.2.1; SDK Git submodule pin: d6cc895e858dc2a8189fe043a291b5f977744fd3.
+
+Recorder configuration update (no driver or SDK binary changes):
+- Native rosbag2 recording_qos.yaml covers all 21 sensor/diagnostic topics.
+- Subscriber depths: IMUs 2048, camera images/point clouds 64, other topics 256.
+- README includes all-topic, LiDAR/IMU-only and paused-start recording commands,
+  memory/cache guidance and the limits of finite Reliable queues.
+- The YAML is installed with prism_ros_driver; source the rebuilt workspace.
 
 Validation performed:
 - Shared C++ tests and ROS1/ROS2 message/service parity: 8/8 passed.

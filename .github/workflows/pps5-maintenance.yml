@@ -2,7 +2,7 @@ name: PPS5 maintenance validation
 on:
   push:
     branches: ["codex/maintenance-1.2.1-pps5ms"]
-    tags: ["v1.2.1-pps5ms"]
+    tags: ["v1.2.1"]
   workflow_dispatch:
 permissions:
   contents: read

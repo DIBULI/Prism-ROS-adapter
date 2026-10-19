@@ -37,7 +37,9 @@ libstdc++ and glibc while building in the target ROS environment.
 
 This maintenance branch pins Host SDK 1.2.1 (runtime ABI 18)
 under `third_party/Prism-SDK` to commit `d6cc895e858dc2a8189fe043a291b5f977744fd3`. ROS messages, topics and driver behavior are unchanged from 1.2.0.
-Only the matched SDK dependency/version and PPS telemetry regression tests changed.
+The matched SDK dependency/version and PPS telemetry regression tests changed;
+the optional native rosbag2 recording preset and instructions below are also included.
+The recorder preset does not change the driver's publisher settings.
 The default build uses the Host USB client. A ROS 2 build with
 `-DPRISM_TRANSPORT=rklocal` instead links the ARM64 RK-local SDK; the two
 transports are separate binaries, not a runtime connection-mode toggle.
@@ -53,7 +55,7 @@ Release archives already bundle the matching SDK. Git clones should use
 `git submodule update --init --recursive` to obtain the pinned maintenance SDK:
 
 ```bash
-git clone --branch codex/maintenance-1.2.1-pps5ms --recurse-submodules git@github.com:DIBULI/Prism-ROS-adapter.git
+git clone --branch v1.2.1 --recurse-submodules git@github.com:DIBULI/Prism-ROS-adapter.git
 ```
 
 For an existing checkout, initialize the exact pinned SDK commit with:
