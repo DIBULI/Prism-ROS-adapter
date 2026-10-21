@@ -344,6 +344,9 @@ class Driver {
   WifiHotspotState setWifiHotspot(bool enabled);
 
  private:
+#ifdef PRISM_ROS_DATA_HEALTH_TEST
+  friend struct DriverDataHealthTest;
+#endif
   struct Impl;
   std::unique_ptr<Impl> impl_;
 };

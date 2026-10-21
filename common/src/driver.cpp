@@ -8,6 +8,7 @@
 #include "prism_ros_adapter/receiver_model.hpp"
 #include "prism_ros_adapter/lidar_conversion.hpp"
 #include "prism_ros_adapter/lidar_speed_control.hpp"
+#include "prism_ros_adapter/sensor_data_health.hpp"
 
 #include <algorithm>
 #include <array>
@@ -341,6 +342,7 @@ class DispatchQueue {
   }
 
   uint64_t dropped() const noexcept { return dropped_.load(); }
+  uint64_t callbackErrors() const noexcept { return callback_errors_.load(); }
 
  private:
   void workerMain() {
@@ -359,6 +361,7 @@ class DispatchQueue {
         handler_(value);
       } catch (...) {
         // A ROS subscriber or middleware failure must never stall USB reads.
+        callback_errors_.fetch_add(1);
       }
     }
   }
@@ -367,6 +370,7 @@ class DispatchQueue {
   Handler handler_;
   std::atomic<bool> running_{false};
   std::atomic<uint64_t> dropped_{0};
+  std::atomic<uint64_t> callback_errors_{0};
   std::mutex mutex_;
   std::condition_variable cv_;
   std::deque<T> queue_;
@@ -377,6 +381,8 @@ class DispatchQueue {
 }  // namespace
 
 struct Driver::Impl {
+  using HealthStream = SensorDataHealth::Stream;
+  using HealthIssue = SensorDataHealth::Issue;
   struct ControlContext {
     sdk::Client& client;
     std::unique_ptr<sdk::ImuStream>& imu_stream;
@@ -514,6 +520,13 @@ struct Driver::Impl {
   void startConfiguredStreams(ControlContext& context) {
     ensureStreamObjects(context);
     if (config.enable_camera && !context.video_started) {
+      const double fps = config.camera_fps ? config.camera_fps : detected_camera_fps;
+      for (size_t i = 0; i < 4; ++i) {
+        health.reset(static_cast<HealthStream>(i), steadyNowNs(), fps,
+                     (camera_mask & (1u << i)) ? 5 * SensorDataHealth::kSecond : 0);
+      }
+      health.reset(HealthStream::CameraMetadata, steadyNowNs(), fps,
+                   5 * SensorDataHealth::kSecond);
       const auto video =
           context.client.startVideo1280x1024(config.camera_fps);
       context.video_started = video.enabled;
@@ -524,12 +537,20 @@ struct Driver::Impl {
       if (!context.imu_stream) {
         throw std::runtime_error("board IMU stream is unavailable");
       }
+      const double rate = config.imu_rate_hz ? config.imu_rate_hz : detected_imu_rate;
+      for (size_t i = 0; i < 2; ++i) {
+        health.reset(i ? HealthStream::BoardImu1 : HealthStream::BoardImu0,
+                     steadyNowNs(), rate,
+                     (imu_mask & (1u << i)) ? 5 * SensorDataHealth::kSecond : 0);
+      }
       context.imu_stream->start(context.imu_sensor_count, config.imu_rate_hz);
       context.imu_started = true;
     }
 
     establishDeviceTimeReference(context.client, context.imu_stream.get());
     if (config.enable_rover_rtcm && !rover_started) {
+      health.reset(HealthStream::RoverRtcm, steadyNowNs());
+      health.resetCounter(HealthStream::RoverRtcm, HealthIssue::LostBytes);
       rover_started = context.client.startRoverRtcm().enabled;
       if (!rover_started) throw std::runtime_error("rover RTCM start rejected");
     }
@@ -539,6 +560,10 @@ struct Driver::Impl {
         throw std::runtime_error("LiDAR stream is unavailable");
       }
       lidar_frame_accumulator.reset();
+      health.reset(HealthStream::LidarPoints, steadyNowNs(), 0, 5 * SensorDataHealth::kSecond);
+      // XT32 has no integrated IMU. Do not invent a rate for other models.
+      health.reset(HealthStream::LidarImu, steadyNowNs(), 0,
+                   config.lidar_model == LidarModel::Xt32 ? 0 : 5 * SensorDataHealth::kSecond);
       context.lidar_stream->start(toSdkModel(config.lidar_model));
       context.lidar_started = true;
     }
@@ -642,6 +667,7 @@ struct Driver::Impl {
   }
 
   void stopConfiguredStreams(ControlContext& context) {
+    disableCaptureHealth();
     if (rover_started) {
       context.client.stopRoverRtcm();
       rover_started = false;
@@ -681,6 +707,9 @@ struct Driver::Impl {
     sensor_board_online = info.sensor_board_online;
     sensor_board_time_synced = info.sensor_board_time_synced;
     product_serial = info.product_serial;
+    detected_camera_fps = info.camera_fps;
+    detected_imu_rate = info.imu_fps;
+    imu_mask = info.imu_present_mask & 3u;
     if ((config.enable_camera || config.enable_board_imu) &&
         !info.sensor_board_online) {
       throw std::runtime_error("sensor-board is offline after time sync");
@@ -822,6 +851,89 @@ struct Driver::Impl {
     if (callbacks.log) callbacks.log(level, text);
   }
 
+  void disableCaptureHealth() {
+    for (size_t i = 0; i <= static_cast<size_t>(HealthStream::LidarImu); ++i)
+      health.disable(static_cast<HealthStream>(i));
+  }
+
+  template <typename T>
+  void checkDispatch(HealthStream stream, const DispatchQueue<T>& queue) {
+    health.counter(stream, HealthIssue::QueueDrop, queue.dropped(), true);
+    health.counter(stream, HealthIssue::CallbackError, queue.callbackErrors(), true);
+  }
+
+  void reportHealth(bool final = false) {
+    checkDispatch(HealthStream::CameraMetadata, camera_dispatch);
+    checkDispatch(HealthStream::BoardImuDispatch, board_imu_dispatch);
+    checkDispatch(HealthStream::LidarPoints, lidar_dispatch);
+    checkDispatch(HealthStream::LidarImu, lidar_imu_dispatch);
+    checkDispatch(HealthStream::GnssTiming, gnss_dispatch);
+    checkDispatch(HealthStream::Receiver, receiver_dispatch);
+    checkDispatch(HealthStream::GnssObservations, observations_dispatch);
+    checkDispatch(HealthStream::RawDispatch, raw_dispatch);
+    checkDispatch(HealthStream::GnssReception, reception_dispatch);
+    checkDispatch(HealthStream::RtkStatus, rtk_module_dispatch);
+    checkDispatch(HealthStream::RoverRtcm, rover_dispatch);
+    if (final) {
+      for (size_t i = 0; i < static_cast<size_t>(HealthStream::Count); ++i)
+        health.disable(static_cast<HealthStream>(i));
+    }
+    for (const auto& warning : health.reports(steadyNowNs(), final))
+      log(LogLevel::Warning, warning);
+  }
+
+  void checkRawBatch(const prism::GnssRawBatch& batch) {
+    for (auto stream : {HealthStream::RawDispatch, HealthStream::GnssRaw, HealthStream::CorsRtcm})
+      health.session(stream, batch.session);
+    if (batch.gap) health.add(HealthStream::RawDispatch, HealthIssue::CacheGap);
+    for (const auto& record : batch.records) {
+      // The sequence is shared across channels; lost_bytes is per record.
+      health.observe(HealthStream::RawDispatch, steadyNowNs(), 0, record.sequence, 64);
+      const auto stream = uint8_t(record.channel) == 2 ? HealthStream::CorsRtcm :
+          uint8_t(record.channel) == 1 ? HealthStream::GnssRaw : HealthStream::RawDispatch;
+      health.touch(stream, steadyNowNs());
+      if (record.flags & 1) health.add(stream, HealthIssue::SourceGap);
+      if (record.flags & 2) health.add(stream, HealthIssue::SessionChanged);
+      if (record.flags & 4) health.add(stream, HealthIssue::UartError);
+      health.add(stream, HealthIssue::LostBytes, record.lost_bytes);
+    }
+  }
+
+  void checkReception(const GnssReceptionStatusState& reception) {
+    health.touch(HealthStream::GnssReception, steadyNowNs());
+    health.counter(HealthStream::GnssReception, HealthIssue::UartError, reception.uart_frame_error_count);
+    health.counter(HealthStream::GnssReception, HealthIssue::FifoOverflow, reception.fifo_overflow_count);
+    health.counter(HealthStream::GnssReception, HealthIssue::Rejected, reception.nmea_rejected_count);
+    health.condition(HealthStream::GnssReception, HealthIssue::RawStale,
+                     reception.raw_data_seen && !reception.raw_data_fresh);
+    health.condition(HealthStream::GnssReception, HealthIssue::NmeaStale,
+                     reception.nmea_sentence_seen && !reception.nmea_sentence_fresh);
+  }
+
+  void checkRtk(const TimeSyncRtkStatusState& rtk) {
+    health.touch(HealthStream::RtkStatus, steadyNowNs());
+    health.condition(HealthStream::RtkStatus, HealthIssue::StatusStale,
+                     rtk.linked && !rtk.device_status_fresh);
+    if (!rtk.linked || !rtk.device_status_fresh) return;
+    if (last_rtk_uptime && rtk.uptime_ms < *last_rtk_uptime) {
+      health.add(HealthStream::RtkStatus, HealthIssue::SessionChanged);
+      for (auto issue : {HealthIssue::LostBytes, HealthIssue::CrcError, HealthIssue::UpstreamDrop})
+        health.resetCounter(HealthStream::RtkStatus, issue);
+    }
+    last_rtk_uptime = rtk.uptime_ms;
+    health.counter(HealthStream::RtkStatus, HealthIssue::LostBytes, rtk.lost_bytes);
+    health.counter(HealthStream::RtkStatus, HealthIssue::CrcError, rtk.rtcm_errors);
+    // PA2 upstream drops are NOT UART errors or differential TX loss.
+    health.counter(HealthStream::RtkStatus, HealthIssue::UpstreamDrop, rtk.upstream_drops);
+  }
+
+  void checkRoverRtcm(const prism::RoverRtcmChunkView& chunk) {
+    health.observe(HealthStream::RoverRtcm, steadyNowNs(), 0, chunk.sequence);
+    health.counter(HealthStream::RoverRtcm, HealthIssue::LostBytes, chunk.dropped_bytes, true);
+    // This flag stays set once the cumulative loss counter becomes nonzero.
+    health.condition(HealthStream::RoverRtcm, HealthIssue::SourceGap, (chunk.flags & 1u) != 0);
+  }
+
   sdk::Client openClient() const {
 #ifdef PRISM_ROS_RKLOCAL
     if (!config.device_serial.empty()) {
@@ -883,7 +995,16 @@ struct Driver::Impl {
   }
 
   void dispatchBoardImu(const prism::ImuSample& sample) {
+    if (sample.sensor_id >= 2) {
+      health.add(HealthStream::Transport, HealthIssue::Rejected);
+      return;
+    }
+    const auto stream = sample.sensor_id ? HealthStream::BoardImu1 : HealthStream::BoardImu0;
+    health.observe(stream, steadyNowNs(), sample.timestamp_synced ? sample.timestamp_us * 1000u : 0,
+                   sample.sample_id, 16); // Sensor-board sequence is 16-bit on this SDK baseline.
+    if (sample.sample_gap) health.add(stream, HealthIssue::SourceGap);
     if (config.require_synchronized_timestamps && !sample.timestamp_synced) {
+      health.add(stream, HealthIssue::Unsynchronized);
       dropped_unsynchronized.fetch_add(1);
       return;
     }
@@ -911,7 +1032,14 @@ struct Driver::Impl {
   }
 
   void dispatchLidarPoints(const prism::LidarPointBatch& batch) {
+    // Validate transport batches, not the 100 ms output cloud's inherited ID.
+    // Equal point times (e.g. dual returns) are legal; there is no fixed packet rate.
+    health.observe(HealthStream::LidarPoints, steadyNowNs(),
+                   batch.timestamp_synced ? batch.timestamp_utc_us * 1000u : 0,
+                   batch.batch_id, 32, true);
+    if (batch.points.empty()) health.add(HealthStream::LidarPoints, HealthIssue::Incomplete);
     if (config.require_synchronized_timestamps && !batch.timestamp_synced) {
+      health.add(HealthStream::LidarPoints, HealthIssue::Unsynchronized);
       dropped_unsynchronized.fetch_add(1);
       return;
     }
@@ -922,6 +1050,7 @@ struct Driver::Impl {
         device_time_resolver.hasFreshReference(steadyNowNs());
     if (!resolved && reference_required &&
         config.require_synchronized_timestamps) {
+      health.add(HealthStream::LidarPoints, HealthIssue::Unsynchronized);
       dropped_unsynchronized.fetch_add(1);
       return;
     }
@@ -942,7 +1071,11 @@ struct Driver::Impl {
   }
 
   void dispatchLidarImu(const prism::LidarImuSample& sample) {
+    health.observe(HealthStream::LidarImu, steadyNowNs(),
+                   sample.timestamp_synced ? sample.timestamp_utc_us * 1000u : 0,
+                   sample.sample_id);
     if (config.require_synchronized_timestamps && !sample.timestamp_synced) {
+      health.add(HealthStream::LidarImu, HealthIssue::Unsynchronized);
       dropped_unsynchronized.fetch_add(1);
       return;
     }
@@ -953,6 +1086,7 @@ struct Driver::Impl {
         device_time_resolver.hasFreshReference(steadyNowNs());
     if (!resolved && reference_required &&
         config.require_synchronized_timestamps) {
+      health.add(HealthStream::LidarImu, HealthIssue::Unsynchronized);
       dropped_unsynchronized.fetch_add(1);
       return;
     }
@@ -977,6 +1111,14 @@ struct Driver::Impl {
   void publishCameraFrame(prism::capture::CameraFrameSet frame) {
     const bool timestamp_valid = frame.metadata.valid && frame.metadata.trigger_time_ns;
     if (!config.enable_camera) return;
+    for (size_t i = 0; i < frame.jpeg.size(); ++i) {
+      if (frame.jpeg[i].empty()) continue; // SDK retirement diagnostics count missing slots.
+      const auto stream = static_cast<HealthStream>(i);
+      health.observe(stream, steadyNowNs(), timestamp_valid ? frame.metadata.trigger_time_ns : 0,
+                     frame.frame_id);
+      if (config.require_synchronized_timestamps && !timestamp_valid)
+        health.add(stream, HealthIssue::Unsynchronized);
+    }
     if (config.require_synchronized_timestamps && !timestamp_valid) {
       dropped_unsynchronized.fetch_add(1); return;
     }
@@ -996,21 +1138,34 @@ struct Driver::Impl {
   void consumeCameraResult(sdk::Client& client, prism::capture::CameraChunkResult result) {
     // One credit per retired set, including an entirely missing set.
     for (auto id : result.discarded_incomplete_frame_ids) sdk::acknowledgeVideo(client, id);
-    if (!result.discarded_diagnostics.empty() &&
-        std::chrono::steady_clock::now() >= next_camera_warning) {
-      log(LogLevel::Warning, result.discarded_diagnostics.back().describe());
-      next_camera_warning = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-    }
+    checkCameraDiagnostics(result);
     for (auto& frame : result.partial_frames) publishCameraFrame(std::move(frame));
     if (result.completed) {
       sdk::acknowledgeVideo(client, result.completed->frame_id);
       publishCameraFrame(std::move(*result.completed));
     }
   }
+
+  void checkCameraDiagnostics(const prism::capture::CameraChunkResult& result) {
+    if (config.enable_camera) for (const auto& diagnostic : result.discarded_diagnostics) {
+      for (size_t i = 0; i < diagnostic.cameras.size(); ++i) {
+        if ((camera_mask & (1u << i)) &&
+            diagnostic.cameras[i].state != prism::capture::CameraTransferState::Complete)
+          health.add(static_cast<HealthStream>(i), HealthIssue::Incomplete);
+      }
+      if (!diagnostic.metadata_received)
+        health.add(HealthStream::CameraMetadata, HealthIssue::Incomplete);
+    }
+  }
   void handleVideoChunk(sdk::Client& client, const prism::VideoChunkView& chunk) {
     consumeCameraResult(client, camera_assembler.ingest(chunk));
   }
   void handleVideoMeta(sdk::Client& client, const prism::VideoMeta& meta) {
+    if (config.enable_camera) {
+      if (meta.valid) health.observe(HealthStream::CameraMetadata, steadyNowNs(),
+                                    meta.trigger_time_ns, meta.host_frame_id);
+      else health.add(HealthStream::CameraMetadata, HealthIssue::Incomplete);
+    }
     if (meta.valid && meta.trigger_time_ns)
       device_time_resolver.observeCamera(meta.trigger_time_ns, steadyNowNs());
     if (auto frame = camera_assembler.addMetadata(meta)) {
@@ -1091,6 +1246,9 @@ struct Driver::Impl {
     // just to query GNSS, feed CORS, or record rover observations.
 
     stop_requested.store(false);
+    health = SensorDataHealth{};
+    last_rtk_uptime.reset();
+    last_receiver_sequence = {};
     fatal_control_error.clear();
     device_time_resolver.reset();
     lidar_frame_accumulator.reset();
@@ -1102,6 +1260,9 @@ struct Driver::Impl {
     sensor_board_online = info.sensor_board_online;
     sensor_board_time_synced = info.sensor_board_time_synced;
     product_serial = info.product_serial;
+    detected_camera_fps = info.camera_fps;
+    detected_imu_rate = info.imu_fps;
+    imu_mask = info.imu_present_mask & 3u;
     if ((config.enable_camera || config.enable_board_imu) &&
         !info.sensor_board_online) {
       stopDispatchers();
@@ -1148,6 +1309,11 @@ struct Driver::Impl {
     try {
       configureLidarNetworkOnStart(client);
       startConfiguredStreams(control_context);
+      if (config.enable_navigation) {
+        for (auto stream : {HealthStream::GnssTiming, HealthStream::GnssReception,
+                            HealthStream::GnssObservations, HealthStream::RtkStatus})
+          health.reset(stream, steadyNowNs(), 0, 5 * SensorDataHealth::kSecond);
+      }
       enableControls();
       publishStatus(streamStateText(control_context));
       auto next_status = std::chrono::steady_clock::now();
@@ -1162,7 +1328,7 @@ struct Driver::Impl {
 #ifdef PRISM_ROS_RKLOCAL
         if (client.droppedRawFrames() != reported_raw_drops) {
           reported_raw_drops = client.droppedRawFrames();
-          log(LogLevel::Warning, "RK-local raw queue dropped events: " + std::to_string(reported_raw_drops));
+          health.counter(HealthStream::Transport, HealthIssue::QueueDrop, reported_raw_drops, true);
         }
 #endif
         processControls(control_context);
@@ -1179,6 +1345,7 @@ struct Driver::Impl {
                 std::chrono::duration_cast<std::chrono::nanoseconds>(
                     std::chrono::system_clock::now().time_since_epoch()).count());
             data.sequence = chunk.sequence;
+            checkRoverRtcm(chunk);
             data.flags = chunk.flags;
             data.dropped_bytes = chunk.dropped_bytes;
             data.adapter_dropped_chunks = rover_dispatch.dropped();
@@ -1218,6 +1385,7 @@ struct Driver::Impl {
             // Bounded pagination; raw navigation failure never stops acquisition.
             for(unsigned page=0;page<4;++page) {
               auto b=client.gnssRaw(raw_cursor,raw_session);
+              checkRawBatch(b);
               raw_cursor=b.cursor;raw_session=b.session;
               out.session=b.session;out.cursor=b.cursor;out.device_monotonic_ms=b.device_monotonic_ms;
               if(b.gap) {out.cache_gap=true;raw_dispatch.push(out);out.cache_gap=false;}
@@ -1230,32 +1398,41 @@ struct Driver::Impl {
             }
           } catch(const std::exception& error) {
             out.query_failed=true;out.data.clear();out.channel=0;raw_dispatch.push(out);
-            log(LogLevel::Warning,std::string("raw GNSS unavailable; other streams continue: ")+error.what());
+            health.queryError(HealthStream::RawDispatch, error.what());
             next_raw=now+std::chrono::seconds(5);
           }
         }
         if (config.enable_navigation && now >= next_navigation) {
+          auto query_stream = HealthStream::GnssTiming;
           try {
             receiver_model.timing = fromSdk(client.gnssTimingStatus());
+            health.touch(HealthStream::GnssTiming, steadyNowNs());
             gnss_dispatch.push(receiver_model.timing);
+            query_stream = HealthStream::GnssObservations;
             pollReceiver(client);
           } catch (const std::exception& error) {
             // No stale-success publication. Diagnostics show query failure.
-            if (now >= next_status) log(LogLevel::Warning,
-                std::string("navigation poll failed: ") + error.what());
+            health.queryError(query_stream, error.what());
           }
           next_navigation = now + std::chrono::milliseconds(100);
         }
         if (now >= next_status) {
           if (config.enable_navigation) {
+            auto query_stream = HealthStream::GnssReception;
             try {
-              reception_dispatch.push(fromSdk(client.gnssReceptionStatus()));
-              rtk_module_dispatch.push(fromSdk(client.timeSyncRtkStatus()));
+              const auto reception = fromSdk(client.gnssReceptionStatus());
+              checkReception(reception);
+              reception_dispatch.push(reception);
+              query_stream = HealthStream::RtkStatus;
+              const auto rtk = fromSdk(client.timeSyncRtkStatus());
+              checkRtk(rtk);
+              rtk_module_dispatch.push(rtk);
             }
             catch (const std::exception& error) {
-              log(LogLevel::Warning, std::string("RTK status failed: ") + error.what());
+              health.queryError(query_stream, error.what());
             }
           }
+          reportHealth();
           publishStatus(streamStateText(control_context));
           next_status = now + std::chrono::seconds(1);
         }
@@ -1268,6 +1445,7 @@ struct Driver::Impl {
               imu_started, video_started);
       running.store(false);
       stopDispatchers();
+      reportHealth(true);
       throw;
     }
 
@@ -1277,11 +1455,19 @@ struct Driver::Impl {
     running.store(false);
     publishStatus("stopped");
     stopDispatchers();
+    reportHealth(true);
   }
 
   void pollReceiver(sdk::Client& client) {
     const auto batch = client.gnssObservations(receiver_model.model.cursor,
                                                 receiver_model.model.session);
+    dispatchReceiverBatch(batch);
+  }
+
+  void dispatchReceiverBatch(const prism::GnssObservations& batch) {
+    health.touch(HealthStream::GnssObservations, steadyNowNs());
+    health.session(HealthStream::GnssObservations, batch.session);
+    if (batch.gap) health.add(HealthStream::GnssObservations, HealthIssue::CacheGap);
     receiver_model.apply(batch);
     GnssObservationsState output;
     output.cursor = batch.cursor;
@@ -1289,13 +1475,27 @@ struct Driver::Impl {
     output.session = batch.session;
     output.gap = batch.gap;
     for (const auto& record : batch.records) {
+      health.observe(HealthStream::GnssObservations, steadyNowNs(), 0, record.sequence, 64);
       output.sequences.push_back(record.sequence);
       output.received_ms.push_back(record.received_ms);
       output.sentences.push_back(record.sentence);
     }
     observations_dispatch.push(std::move(output));
-    receiver_dispatch.push(receiver_model.position(false, batch.device_monotonic_ms));
-    receiver_dispatch.push(receiver_model.position(true, batch.device_monotonic_ms));
+    for (size_t i = 0; i < 2; ++i) {
+      auto position = receiver_model.position(i != 0, batch.device_monotonic_ms);
+      const auto stream = i ? HealthStream::RtkFix : HealthStream::GnssFix;
+      health.session(stream, position.session);
+      health.condition(stream, HealthIssue::StatusStale, position.sequence && position.age_ms > 2000);
+      const auto identity = std::make_pair(position.session, position.sequence);
+      // Position sequence references the shared NMEA stream; gaps between two
+      // GGA/ADRNAV fixes and identical polling replies are NOT lost positions.
+      if (position.sequence && identity != last_receiver_sequence[i]) {
+        health.observe(stream, steadyNowNs(), position.timestamp_valid ? position.epoch_us * 1000u : 0,
+                       std::nullopt, 64, true);
+        last_receiver_sequence[i] = identity;
+      }
+      receiver_dispatch.push(std::move(position));
+    }
   }
 
   void cleanup(sdk::Client& client, sdk::LidarStream* lidar_stream,
@@ -1350,7 +1550,11 @@ struct Driver::Impl {
   std::string product_serial;
   uint8_t camera_mask = 0x0fu;
   prism::capture::CameraFrameAssembler camera_assembler;
-  std::chrono::steady_clock::time_point next_camera_warning{};
+  SensorDataHealth health;
+  uint32_t detected_camera_fps = 0, detected_imu_rate = 0;
+  uint8_t imu_mask = 0;
+  std::optional<uint32_t> last_rtk_uptime;
+  std::array<std::pair<uint64_t, uint64_t>, 2> last_receiver_sequence{};
   std::atomic<uint64_t> camera_frame_sets{0};
   std::array<std::atomic<uint64_t>, 2> board_imu_samples{};
   std::atomic<uint64_t> lidar_batches{0};

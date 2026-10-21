@@ -4,6 +4,13 @@ project(prism_ros_adapter_common VERSION 1.2.0 LANGUAGES CXX)
 include(CTest)
 
 if(BUILD_TESTING)
+  add_executable(prism-sensor-data-health-test common/tests/sensor_data_health_test.cpp)
+  target_compile_features(prism-sensor-data-health-test PRIVATE cxx_std_17)
+  target_include_directories(prism-sensor-data-health-test PRIVATE common/include)
+  if(NOT MSVC)
+    target_compile_options(prism-sensor-data-health-test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME sensor-data-health COMMAND prism-sensor-data-health-test)
   find_package(Python3 REQUIRED COMPONENTS Interpreter)
   add_test(NAME recording-qos
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/common/tests/recording_qos_test.py)

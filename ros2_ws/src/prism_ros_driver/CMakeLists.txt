@@ -100,4 +100,20 @@ install(TARGETS prism_ros_driver_node
 install(DIRECTORY launch config
   DESTINATION share/${PROJECT_NAME})
 
+if(BUILD_TESTING)
+  enable_testing()
+  add_executable(prism-driver-data-health-test
+    ../../../common/tests/driver_data_health_test.cpp
+    ../../../common/src/lidar_frame_accumulator.cpp)
+  target_compile_features(prism-driver-data-health-test PRIVATE cxx_std_17)
+  target_compile_definitions(prism-driver-data-health-test PRIVATE PRISM_ROS_DATA_HEALTH_TEST=1)
+  if(PRISM_TRANSPORT STREQUAL "rklocal")
+    target_compile_definitions(prism-driver-data-health-test PRIVATE PRISM_ROS_RKLOCAL=1)
+  endif()
+  target_include_directories(prism-driver-data-health-test PRIVATE ../../../common/include)
+  target_link_libraries(prism-driver-data-health-test ${PRISM_TRANSPORT_TARGET} Threads::Threads)
+  add_test(NAME driver-data-health COMMAND prism-driver-data-health-test)
+  set_tests_properties(driver-data-health PROPERTIES TIMEOUT 30)
+endif()
+
 ament_package()

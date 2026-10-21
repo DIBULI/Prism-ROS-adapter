@@ -133,6 +133,48 @@ metadata/IMU/point-cloud publishing for latency-first uses; camera and GNSS poli
 are unchanged. Reliable delivery reduces transport loss but cannot guarantee
 lossless recording when consumers or storage cannot keep up.
 
+### Sensor data loss warnings (ROS 1 and ROS 2)
+
+The driver checks all sensor paths automatically and writes `sensor-data`
+warnings through the normal ROS logger. No separate monitor or additional SDK
+connection is needed. Checks use source metadata, not the spacing between host
+callbacks; bursty USB delivery alone is not called sensor loss.
+
+| Data path | Driver-side evidence checked |
+| --- | --- |
+| Each detected camera + shared metadata | Frame-ID gaps, duplicate/backward source timestamps, timestamp-gap estimates at the configured/reported FPS, missing/incomplete JPEGs or metadata, and per-camera silence |
+| Each detected board IMU | 16-bit sample-sequence gaps/wrap, source gap flag, duplicate/backward timestamps, timestamp-gap estimates at the configured/reported IMU rate, and silence |
+| LiDAR points | Transport batch-ID gaps/reset, backward batch timestamps, empty batches and silence; equal-time returns are legal and output cloud IDs are not sequential packet IDs |
+| LiDAR IMU | Sample-ID gaps/reset, duplicate/backward timestamps and silence; no IMU is expected from XT32 |
+| GNSS observations, raw bytes, CORS RTCM and optional rover RTCM | Cache-gap flags, session changes, source sequence gaps, upstream gap/UART flags and reported lost bytes; raw GNSS/CORS share one sequence counter |
+| GNSS/RTK positions, timing and reception/status | New-position timestamp regression, query failures/stalls, reported raw/NMEA freshness, UART/FIFO/rejection/RTCM-CRC counters and upstream-drop counters |
+| Every publish queue | Queue overflow and publish callback exceptions, including navigation/status queues |
+
+Warnings identify the stream, increments since the previous warning, and totals
+per issue. They are limited to one summary per stream per five seconds; pending
+counts are retained and flushed on driver exit. Active camera/IMU/LiDAR paths
+warn after five seconds without data (or three nominal periods if longer).
+An unchanged silence condition is reported once, then re-armed on recovery.
+Absent/disabled sensors and intentional stop/restart intervals do not count as
+missing data. Restart, configuration changes and GNSS session changes establish
+new continuity baselines. Use a clean install prefix when replacing an older
+build, so obsolete auxiliary executables are not left in the install tree.
+
+`sequence_missing` counts missing source IDs; `estimated_missing` is a separate
+timestamp-based estimate, **not an additional loss count**. Unknown nominal
+rates are not guessed. Reset/reordering is reported separately from loss.
+GNSS polling may legitimately return the same result repeatedly; a gap between
+two GGA/ADRNAV sequence IDs is not a count of lost positions. Optional GNSS/CORS
+input is not assumed to run at a fixed rate. PA2 `upstream_drop` is not a UART
+error or differential-TX drop. These checks cannot detect losses that occur
+before a source assigns IDs without other gap/counter evidence.
+
+**Driver logs cannot detect a downstream DDS subscriber or rosbag dropping
+messages after publication.** No warnings is not proof of lossless recording;
+audit recorded timestamps/sequences/counts as well. A queue warning for camera
+metadata covers the entire shared camera-set queue; raw-dispatch warnings cover
+both GNSS and CORS, and board-IMU-dispatch warnings cover both board IMUs.
+
 The camera stamp is the sensor-board trigger edge. The adapter combines the
 small Agent LiDAR transport batches into fixed 100 ms windows and publishes
 `/prism/lidar/points` at 10 Hz. A cloud's header stamp is its first point time;
