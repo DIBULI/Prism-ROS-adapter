@@ -34,5 +34,12 @@ Prism ROS Adapter 1.3.0
   This is not a long-run or complete recording-to-disk integrity guarantee.
 - GNSS raw/observation queries still reported3 live-exposure-busy errors in that
   trial; full navigation acceptance remains pending. Prior failed trials retained.
-- Wired Ethernet remains untested (NO-CARRIER). No firmware deployment or service
-  restart was performed. This SDK pin refresh adds no new physical-device test.
+- Refreshed SDK d4ac1e9: server41M3 ROS2 Jazzy Wi-Fi40s window received and fully
+  decoded400images on every lane at10FPS, plus31905finite IMU samples at797.66Hz
+  (1252..1255us intervals). Camera/metadata timestamps and counters were continuous;
+  DDS losses, publication ACK timeouts and camera/IMU dispatch drops were zero.
+  STOP and independent idle confirmed. GNSS observation queries still reported
+  four live-exposure-busy errors; navigation acceptance is not claimed.
+- Wired Ethernet remains untested (NO-CARRIER). No firmware deployment, service
+  restart or device configuration change was performed. Neither short trial
+  proves long-run reliability or rosbag disk integrity.
