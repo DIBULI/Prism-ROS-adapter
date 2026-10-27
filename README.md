@@ -31,10 +31,13 @@ libstdc++ and glibc while building in the target ROS environment.
 ## Prism SDK Git submodule
 
 This repository pins Prism SDK `1.3.0` (commit
-`ac785dfb94fa0838d6f54b7f20ffed14848ea000`) as the `third_party/Prism-SDK` Git
+`d4ac1e91c09137b21501fcc5a3a47db218021ee8`) as the `third_party/Prism-SDK` Git
 submodule. It contains the Host SDK 1.3.0 runtime/ABI 19 for Agent 1.3.0.
 The pinned [SDK v1.3.0](https://github.com/DIBULI/Prism-SDK/releases/tag/v1.3.0)
 includes the aligned RK-local C++ API and interface guides under `docs/`.
+This pin also includes validated 415M RAW12 shared-trigger header helpers.
+The transport runtime/ABI remains unchanged; the ROS camera topics still use
+their existing JPEG/metadata path, not the Viewer RAW12 grouped-display path.
 This refresh updates the SDK libraries and adds raw GNSS observation/ephemeris
 and module CORS topics. RTK workflow/continuous-position examples retain English
 usage comments in their source. Rebuild generated messages and consumers.

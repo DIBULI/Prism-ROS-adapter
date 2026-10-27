@@ -9,6 +9,7 @@ import os
 import pathlib
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 
@@ -23,8 +24,18 @@ from verify_rklocal_ros2 import MockAgent
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('binary')
+    cases = ('missing-token', 'bad-token', 'serial-mismatch', 'stream')
+    parser.add_argument('--case', choices=cases)
     args = parser.parse_args()
     assert pathlib.Path(args.binary).is_file()
+    if args.case is None:
+        # Negative nodes expose the same service/topic names as the positive
+        # node. Do not reuse their discovery state across authentication cases.
+        for case in cases:
+            subprocess.run([sys.executable, __file__, args.binary, '--case', case],
+                           check=True, timeout=90)
+        print('PASS all published SDK1.3.0 NET/4 ROS2 loopback cases')
+        return
     rclpy.init()
     node = rclpy.create_node('prism_network_mock_test')
     counts = collections.Counter()
@@ -49,7 +60,7 @@ def main():
         assert check(), dict(counts)
 
     password = 'loopback-only mixed CASE password'
-    for case in ('missing-token', 'bad-token', 'serial-mismatch', 'stream'):
+    for case in (args.case,):
         mock = MockAgent('', network_token=password)
         port = mock.listener.getsockname()[1]
         env = os.environ.copy()
@@ -61,21 +72,32 @@ def main():
                    '-p', 'device_serial:=' + ('NOT-MOCK' if case == 'serial-mismatch' else 'MOCK'),
                    '-p', 'navigation_enabled:=true', '-p', 'gnss_raw_enabled:=true',
                    '-p', 'camera_fps:=30', '-p', 'reliable_sensor_qos:=true']
+        client = node.create_client(ControlStreams, '/prism/streams/control')
+        if case == 'stream':
+            command += ['-p', 'camera_enabled:=false', '-p', 'board_imu_enabled:=false']
         with tempfile.TemporaryFile(mode='w+') as log:
             process = subprocess.Popen(command, env=env, stdout=log, stderr=subprocess.STDOUT)
             try:
                 if case == 'stream':
+                    # Match the test endpoints before sending START, not after
+                    # filling the stream queues. Keep spinning while discovering
+                    # the service so the observer does not block its callbacks.
+                    spin_until(lambda: client.service_is_ready() and
+                               all(node.count_publishers(sub.topic_name) == 1 for sub in subs))
+                    assert mock.commands[6] == mock.commands[8] == 0
+                    start = ControlStreams.Request()
+                    start.command, start.camera, start.board_imu = 'start', True, True
+                    started = client.call_async(start)
+                    spin_until(started.done)
+                    assert started.result().success, started.result().message
                     spin_until(lambda: all(counts[key] >= 6 for key in ['camera0', 'camera1', 'camera2', 'camera3', 'meta']) and counts['imu'] >= 480)
                     assert mock.commands[0x3A] >= 2 and mock.commands[0x44] >= 2, 'navigation was disabled instead of fixing starvation'
-                    client = node.create_client(ControlStreams, '/prism/streams/control')
-                    assert client.wait_for_service(timeout_sec=5)
                     req = ControlStreams.Request()
                     req.command, req.camera, req.board_imu = 'stop', True, True
                     future = client.call_async(req)
                     spin_until(future.done)
                     result = future.result()
                     assert result.success and not result.state.camera_active and not result.state.board_imu_active, result.message
-                    node.destroy_client(client)
                     assert mock.commands[6] == 1 and mock.commands[8] == 1
                     assert mock.commands[7] == 0 and mock.commands[9] == 1  # aggregate STOP
                     assert mock.acks and all(v == 1 for v in mock.acks.values())
@@ -85,6 +107,13 @@ def main():
                     while time.monotonic() < deadline:
                         rclpy.spin_once(node, timeout_sec=.05)
                     assert mock.commands[6] == mock.commands[8] == 0, 'negative case reached START'
+            except BaseException:
+                log.flush()
+                log.seek(0)
+                print('FAIL', case, 'commands', dict(mock.commands),
+                      'counts', dict(counts), 'mock error', repr(mock.error))
+                print(log.read()[-6000:].replace(password, '<redacted>'))
+                raise
             finally:
                 if process.poll() is None:
                     process.send_signal(signal.SIGINT)
@@ -101,6 +130,7 @@ def main():
                     assert not any('stream=camera' in line and 'timestamp_gap' in line for line in text.splitlines()), 'camera health uses requested30 instead of negotiated10'
                 assert 'Opening USB' not in text, 'network failure fell back to USB'
                 assert mock.error is None, repr(mock.error)
+                node.destroy_client(client)
             print('PASS', case, 'commands', dict(mock.commands), 'ACKs', len(mock.acks))
     print('PASS published SDK1.3.0 NET/4 ROS2 loopback:', dict(counts))
     node.destroy_node()

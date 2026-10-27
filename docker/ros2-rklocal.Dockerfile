@@ -26,6 +26,8 @@ COPY --from=prism_sdk include /opt/prism-sdk/include
 COPY --from=prism_sdk cmake/PrismRkLocalSdk.cmake /opt/prism-sdk/cmake/PrismRkLocalSdk.cmake
 COPY --from=prism_sdk runtime/linux-arm64/libprism_rklocal_sdk.a /opt/prism-sdk/runtime/linux-arm64/libprism_rklocal_sdk.a
 COPY common /opt/src/prism-ros-adapter/common
+COPY LICENSE NOTICE LICENSING.md THIRD_PARTY_NOTICES.md /opt/src/prism-ros-adapter/
+COPY licenses /opt/src/prism-ros-adapter/licenses
 COPY ros2_ws/src /opt/src/prism-ros-adapter/ros2_ws/src
 RUN source /opt/ros/${ROS_DISTRO}/setup.bash \
     && cd /opt/src/prism-ros-adapter/ros2_ws \
