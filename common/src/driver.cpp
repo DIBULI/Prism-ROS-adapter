@@ -5,6 +5,7 @@
 #include "prism_ros_adapter/lidar_frame_accumulator.hpp"
 
 #include "prism_ros_adapter/sdk_transport.hpp"
+#include "prism_ros_adapter/connection_options.hpp"
 #include "prism_ros_adapter/receiver_model.hpp"
 #include "prism_ros_adapter/lidar_conversion.hpp"
 #include "prism_ros_adapter/lidar_speed_control.hpp"
@@ -323,6 +324,7 @@ class DispatchQueue {
     {
       std::lock_guard<std::mutex> lock(mutex_);
       queue_.clear();
+      depth_.store(0);
     }
     cv_.notify_all();
     if (worker_.joinable()) worker_.join();
@@ -337,12 +339,16 @@ class DispatchQueue {
         dropped_.fetch_add(1);
       }
       queue_.push_back(std::move(value));
+      depth_.store(queue_.size());
+      peak_.store(std::max<uint64_t>(peak_.load(), queue_.size()));
     }
     cv_.notify_one();
   }
 
   uint64_t dropped() const noexcept { return dropped_.load(); }
   uint64_t callbackErrors() const noexcept { return callback_errors_.load(); }
+  uint64_t depth() const noexcept { return depth_.load(); }
+  uint64_t peak() const noexcept { return peak_.load(); }
 
  private:
   void workerMain() {
@@ -356,6 +362,7 @@ class DispatchQueue {
         if (!running_.load()) break;
         value = std::move(queue_.front());
         queue_.pop_front();
+        depth_.store(queue_.size());
       }
       try {
         handler_(value);
@@ -371,6 +378,7 @@ class DispatchQueue {
   std::atomic<bool> running_{false};
   std::atomic<uint64_t> dropped_{0};
   std::atomic<uint64_t> callback_errors_{0};
+  std::atomic<uint64_t> depth_{0}, peak_{0};
   std::mutex mutex_;
   std::condition_variable cv_;
   std::deque<T> queue_;
@@ -410,10 +418,17 @@ struct Driver::Impl {
         reception_dispatch(1, callbacks.reception),
         rtk_module_dispatch(1, callbacks.rtk_module),
         rover_dispatch(1024, callbacks.rover_rtcm),
-        camera_dispatch(2, callbacks.camera),
+        // A network query can release several complete sets in one burst.
+        // Eight sets are bounded; drop/error warnings and depth/peak remain visible.
+        camera_dispatch(8, callbacks.camera),
         board_imu_dispatch(8192, callbacks.board_imu),
         lidar_dispatch(16, callbacks.lidar_points),
         lidar_imu_dispatch(2048, callbacks.lidar_imu) {
+#ifdef PRISM_ROS_RKLOCAL
+    validateConnectionConfig(config, true);
+#else
+    validateConnectionConfig(config, false);
+#endif
     for (auto& counter : board_imu_samples) counter.store(0);
     if (config.gps_utc_leap_seconds < -1 || config.gps_utc_leap_seconds > 64)
       throw std::invalid_argument("gps_utc_leap_seconds must be -1 or 0..64");
@@ -520,17 +535,19 @@ struct Driver::Impl {
   void startConfiguredStreams(ControlContext& context) {
     ensureStreamObjects(context);
     if (config.enable_camera && !context.video_started) {
-      const double fps = config.camera_fps ? config.camera_fps : detected_camera_fps;
+      const auto video =
+          context.client.startVideo1280x1024(config.camera_fps);
+      context.video_started = video.enabled;
+      if (!video.enabled) throw std::runtime_error("camera start was rejected");
+      // Network transport can negotiate a lower rate than the stored USB
+      // setting. Health must use the acknowledged source rate, not that request.
+      const double fps = video.fps;
       for (size_t i = 0; i < 4; ++i) {
         health.reset(static_cast<HealthStream>(i), steadyNowNs(), fps,
                      (camera_mask & (1u << i)) ? 5 * SensorDataHealth::kSecond : 0);
       }
       health.reset(HealthStream::CameraMetadata, steadyNowNs(), fps,
                    5 * SensorDataHealth::kSecond);
-      const auto video =
-          context.client.startVideo1280x1024(config.camera_fps);
-      context.video_started = video.enabled;
-      if (!video.enabled) throw std::runtime_error("camera start was rejected");
     }
 
     if (config.enable_board_imu && !context.imu_started) {
@@ -952,6 +969,16 @@ struct Driver::Impl {
     log(LogLevel::Info, "Connecting RK-local Agent: " + options.socket_path);
     return sdk::Client::open(options);
 #else
+    if (resolvedTransport(config, false) == "network") {
+      log(LogLevel::Info, "Connecting network SDK: " + config.network_host +
+          ":" + std::to_string(config.network_port) +
+          " (plaintext TCP; trusted LAN only)");
+      auto client = openNetworkClient<sdk::Client>(config);
+      log(LogLevel::Info, "Network camera FPS ceiling: " +
+          std::to_string(client.networkCameraMaxFps()) +
+          "; lower/native camera rates remain unchanged");
+      return client;
+    }
     if (config.device_serial.empty()) return sdk::Client::openFirst();
     const auto devices = sdk::Client::enumerate();
     const auto found = std::find_if(
@@ -1197,6 +1224,8 @@ struct Driver::Impl {
         lidar_sdk_timestamp_selected.load();
     output.dropped_unsynchronized = dropped_unsynchronized.load();
     output.dropped_camera_dispatch = camera_dispatch.dropped();
+    output.camera_dispatch_depth = camera_dispatch.depth();
+    output.camera_dispatch_peak = camera_dispatch.peak();
     output.dropped_lidar_dispatch = lidar_dispatch.dropped();
     output.dropped_imu_dispatch =
         board_imu_dispatch.dropped() + lidar_imu_dispatch.dropped();
@@ -1252,10 +1281,15 @@ struct Driver::Impl {
     fatal_control_error.clear();
     device_time_resolver.reset();
     lidar_frame_accumulator.reset();
-    startDispatchers();
     sdk::Client client = openClient();
     client.setKeepaliveEnabled(true);
     const auto info = client.deviceInfo();
+#ifndef PRISM_ROS_RKLOCAL
+    if (client.isNetwork() && !config.device_serial.empty() &&
+        info.product_serial != config.device_serial &&
+        narrow(client.serialNumber()) != config.device_serial)
+      throw std::runtime_error("network device serial does not match device_serial; no streams started");
+#endif
     usb3_connected = info.usb3_connected;
     sensor_board_online = info.sensor_board_online;
     sensor_board_time_synced = info.sensor_board_time_synced;
@@ -1303,6 +1337,7 @@ struct Driver::Impl {
     ControlContext control_context{client, imu_stream, lidar_stream,
                                    imu_sensor_count, video_started,
                                    imu_started, lidar_started};
+    startDispatchers();
     running.store(true);
     publishStatus("starting");
 
@@ -1335,8 +1370,15 @@ struct Driver::Impl {
         if (!fatal_control_error.empty()) {
           throw std::runtime_error(fatal_control_error);
         }
-        try {
-          auto frame = client.readFrame(20);
+        // Commands buffer sensor frames in the SDK. Drain a bounded batch
+        // before polling again: one frame per network round-trip cannot keep
+        // up with an 800Hz IMU plus camera chunks. Bounds preserve control and
+        // STOP responsiveness; no extra queue, frame filtering or rate change.
+        const auto receive_deadline = std::chrono::steady_clock::now() +
+                                      std::chrono::milliseconds(10);
+        for (unsigned received = 0; received < 512 && !stop_requested.load(); ++received) {
+         try {
+          auto frame = client.readFrame(received == 0 ? 20 : 1);
           last_frame_received = std::chrono::steady_clock::now();
           if (frame.type == prism::FrameType::RoverRtcm && rover_started) {
             const auto chunk = prism::parseRoverRtcmChunkView(frame);
@@ -1362,7 +1404,7 @@ struct Driver::Impl {
           } else if (!handled && frame.type == prism::FrameType::VideoMeta) {
             handleVideoMeta(client, prism::parseVideoMeta(frame));
           }
-        } catch (const std::exception& error) {
+         } catch (const std::exception& error) {
           if (!isTimeout(error)) throw;
           if ((video_started || imu_started || lidar_started) &&
               std::chrono::steady_clock::now() - last_frame_received >=
@@ -1370,6 +1412,9 @@ struct Driver::Impl {
             log(LogLevel::Warning, "no sensor frames for 10 seconds; waiting without stopping acquisition");
             last_frame_received = std::chrono::steady_clock::now();
           }
+          break;
+         }
+         if (std::chrono::steady_clock::now() >= receive_deadline) break;
         }
         consumeCameraResult(client, camera_assembler.expire());
 
@@ -1377,7 +1422,6 @@ struct Driver::Impl {
         // All SDK I/O stays on this thread; queries buffer stream frames in
         // the SDK, so ROS callbacks never race USB reads.
         if(config.enable_gnss_raw && now>=next_raw) {
-          next_raw=now+std::chrono::milliseconds(50);
           GnssRawState out;
           out.host_received_ns=uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
             std::chrono::system_clock::now().time_since_epoch()).count());
@@ -1396,10 +1440,11 @@ struct Driver::Impl {
               out.sequence=0;out.received_ms=0;out.channel=0;out.flags=0;out.lost_bytes=0;out.data.clear();
               if(!b.more) break;
             }
+            next_raw=std::chrono::steady_clock::now()+std::chrono::milliseconds(50);
           } catch(const std::exception& error) {
             out.query_failed=true;out.data.clear();out.channel=0;raw_dispatch.push(out);
             health.queryError(HealthStream::RawDispatch, error.what());
-            next_raw=now+std::chrono::seconds(5);
+            next_raw=std::chrono::steady_clock::now()+std::chrono::seconds(5);
           }
         }
         if (config.enable_navigation && now >= next_navigation) {
@@ -1414,7 +1459,7 @@ struct Driver::Impl {
             // No stale-success publication. Diagnostics show query failure.
             health.queryError(query_stream, error.what());
           }
-          next_navigation = now + std::chrono::milliseconds(100);
+          next_navigation = std::chrono::steady_clock::now() + std::chrono::milliseconds(100);
         }
         if (now >= next_status) {
           if (config.enable_navigation) {
@@ -1434,7 +1479,7 @@ struct Driver::Impl {
           }
           reportHealth();
           publishStatus(streamStateText(control_context));
-          next_status = now + std::chrono::seconds(1);
+          next_status = std::chrono::steady_clock::now() + std::chrono::seconds(1);
         }
       }
     } catch (const std::exception& error) {

@@ -59,9 +59,10 @@ def receive(conn, size):
 
 
 class MockAgent:
-    def __init__(self, path):
-        self.listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self.listener.bind(path)
+    def __init__(self, path, *, network_token=None):
+        self.network_token = network_token
+        self.listener = socket.socket(socket.AF_UNIX if network_token is None else socket.AF_INET, socket.SOCK_STREAM)
+        self.listener.bind(path if network_token is None else ('127.0.0.1', 0))
         self.listener.listen(1)
         self.acks = collections.Counter()
         self.commands = collections.Counter()
@@ -82,24 +83,27 @@ class MockAgent:
 
     def dispatch(self, kind, seq, data):
         self.commands[kind] += 1
+        if self.network_token is not None and kind in (0x3A, 0x44, 0x3D, 0x40):
+            time.sleep(.04)  # bounded network RTT; reproduce control/read starvation
         if kind == 1:
             body = bytearray(108)
-            struct.pack_into("<HHI", body, 0, 1, 18, 8 * 1024 * 1024)
+            struct.pack_into("<HHI", body, 0, 1, 18, 8 * 1024 * 1024)  # wire header size, not runtime ABI
             body[8:19] = b"prism-agent"
-            body[40:45] = b"1.2.0"
-            body[92:98] = b"0.4.27"
+            body[40:45] = b"1.3.0"
+            body[92:97] = b"0.5.1"
             self.send(0x81, seq, body)
         elif kind == 4:
-            body = status(256, 4)
+            body = status(256, 5)
             put(body, 4, 6)  # online, synchronized; no USB host connected
             body[9:16] = bytes([1, 4, 1, 1, 1, 0, 15])
             struct.pack_into("<HH", body, 20, 800, 30)
             body[32:36] = b"MOCK"
+            body[255] = 1  # Fixed firmware product identity: 41M3.
             self.send(0x85, seq, body)
         elif kind in (6, 7):
             self.streaming = kind == 6
             body = bytearray(20)
-            struct.pack_into("<BBHIII", body, 0, int(self.streaming), 4, 30,
+            struct.pack_into("<BBHIII", body, 0, int(self.streaming), 4, 10 if self.network_token else 30,
                              1280, 1024, 44)
             self.send(0x88, seq, body)
         elif kind in (8, 9):
@@ -112,6 +116,13 @@ class MockAgent:
             put(body, 28, 20000)
             self.send(0xB6, seq, body)
         elif kind == 0x44:
+            if data[4] == 1:  # raw GNSS uses the same command with a distinct request flag
+                body = status(48, 2)
+                put(body, 16, int(time.monotonic() * 1000), 'Q')
+                put(body, 24, 1, 'Q')
+                put(body, 32, 1, 'Q')
+                self.send(0xBB, seq, body)
+                return
             body = status(32)
             now_ms = int(time.monotonic() * 1000)
             put(body, 16, now_ms, "Q")
@@ -160,12 +171,14 @@ class MockAgent:
     def samples(self):
         self.frame_id += 1
         timestamp = 1788541200000000 + self.frame_id * 100000
-        imu = bytearray(44)
-        put(imu, 2, 128, "H")
-        put(imu, 4, self.frame_id)
-        put(imu, 8, timestamp, "Q")
-        put(imu, 24, 1000)
-        self.send(0x89, 900, imu)
+        samples = 80 if self.network_token is not None else 1
+        for i in range(samples):
+            imu = bytearray(44)
+            put(imu, 2, 128, "H")
+            put(imu, 4, ((self.frame_id - 1) * samples + i + 1) & 0xffff)
+            put(imu, 8, timestamp + i * 1250, "Q")
+            put(imu, 24, 1000)
+            self.send(0x89, 900, imu)
         meta = bytearray(84)
         meta[0:2] = bytes([1, 4])
         put(meta, 4, self.frame_id)
@@ -186,6 +199,17 @@ class MockAgent:
             import select
             self.conn, _ = self.listener.accept()
             with self.conn:
+                if self.network_token is not None:
+                    self.conn.settimeout(5)
+                    auth = bytearray()
+                    while len(auth) < 4096 and not auth.endswith(b'\n'):
+                        auth.extend(receive(self.conn, 1))
+                    valid = auth == ('PRISM-NET/4 ' + self.network_token + '\n').encode()
+                    auth[:] = b'\0' * len(auth)
+                    self.conn.sendall(b'OK 10\n' if valid else b'NO 00\n')
+                    if not valid:
+                        return
+                    self.conn.settimeout(None)
                 next_sample = time.monotonic()
                 while True:
                     readable, _, _ = select.select([self.conn], [], [], 0.01)

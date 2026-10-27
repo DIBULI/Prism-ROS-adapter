@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SDK_DISTRIBUTION_VERSION="1.2.0"
-SDK_RUNTIME_VERSION="1.2.0"
+SDK_DISTRIBUTION_VERSION="1.3.0"
+SDK_RUNTIME_VERSION="1.3.0"
 SDK_ROOT="${PRISM_USB_SDK_ROOT:-${ROOT_DIR}/third_party/Prism-SDK}"
 CHECKSUM_FILE="${SDK_ROOT}/SHA256SUMS"
 
@@ -14,6 +14,8 @@ SUPPORTED_PLATFORMS=(
 
 EXPECTED_PREFIX_FILES=(
   include/prism/usb/camera_assembler.hpp
+  include/prism/usb/camera_control.hpp
+  include/prism/usb/camera_control_runtime_api.hpp
   include/prism/usb/client.hpp
   include/prism/usb/common.hpp
   include/prism/usb/configuration.hpp
@@ -28,6 +30,10 @@ EXPECTED_PREFIX_FILES=(
   include/prism/usb/lidar_points.hpp
   include/prism/usb/lidar_power.hpp
   include/prism/usb/lidar_speed.hpp
+  include/prism/usb/network.hpp
+  include/prism/usb/network_runtime_api.hpp
+  include/prism/usb/profile_video.hpp
+  include/prism/usb/profile_runtime_api.hpp
   include/prism/usb/rtk.hpp
   include/prism/usb/timesync_port.hpp
   include/prism/usb/exposure.hpp

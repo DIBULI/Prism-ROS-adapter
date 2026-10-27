@@ -1,0 +1,32 @@
+Prism ROS Adapter 1.3.0
+
+- Pin published Prism SDK 1.3.0 ac785dfb94fa0838d6f54b7f20ffed14848ea000,
+  including matching headers and Linux x64/ARM64 runtime libraries.
+- ROS1/ROS2 host nodes select USB or network at runtime. Dedicated network
+  launch files accept a numeric host and optional port (default 7443).
+- Read the Web login password from a named environment variable, not a ROS
+  parameter/YAML value. Plaintext TCP is for trusted LANs only; no old TLS pairing.
+- Reject invalid endpoints and mismatched optional serial before capture.
+  No automatic USB fallback. RK-local remains a separate ARM64 build.
+- Preserve existing topics and sensor health warnings; USB remains supported.
+- Fix inherited shared-loop starvation: drain a bounded SDK receive batch before
+  navigation queries and schedule subsequent polls from query completion.
+- Bound camera dispatch to eight sets and expose queue depth/peak diagnostics.
+- ROS2 bounds unacknowledged publication bursts using worker-only DDS ACK checks
+  (one image or64boardIMU samples,100ms timeout). Camera publisher history8,
+  IMU history unchanged512. Timeouts remain visible; ACK is not disk completion.
+- Older ROS2 APIs such as Foxy lack the public DDS wait operation. Those builds
+  retain bounded queues and explicitly report dds_ack_supported=false/WARN;
+  they do not claim the newer acknowledgment protection.
+- Offline: Linux/macOS common tests, Linux ROS2 Jazzy build and delayed-navigation
+  NET/4 loopback passed. ROS1 runtime has not been tested.
+- Physical 41M3/Agent1.3.0/board0.5.1 changed-candidate Wi-Fi trial passed a40s
+  subscriber camera/IMU continuity window:393/392/392/393 fully decoded images,
+  each lane10FPS with100ms intervals;31325IMU samples with1252..1255us intervals.
+  DDS lost events, ACK timeouts and driver dispatch/filter drops were zero.
+  STOP and independent idle confirmed, device processes/configuration unchanged.
+  This is not a long-run or complete recording-to-disk integrity guarantee.
+- GNSS raw/observation queries still reported3 live-exposure-busy errors in that
+  trial; full navigation acceptance remains pending. Prior failed trials retained.
+- Wired Ethernet remains untested (NO-CARRIER). No firmware deployment or service
+  restart was performed.

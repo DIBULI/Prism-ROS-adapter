@@ -15,6 +15,7 @@
 #include <prism_ros_msgs/srv/get_receiver_position.hpp>
 #include <prism_ros_msgs/srv/set_unified_exposure.hpp>
 #include "prism_ros_adapter/driver.hpp"
+#include "prism_ros_adapter/publication_ack.hpp"
 #include "prism_ros_adapter/navigation_conversion.hpp"
 #include "prism_ros_adapter/navigation_fix.hpp"
 #include <prism_ros_msgs/msg/gnss_timing_status.hpp>
@@ -57,6 +58,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <cstring>
 #include <memory>
@@ -246,12 +248,20 @@ class PrismRos2Node : public rclcpp::Node {
     config.gps_utc_leap_seconds = declare_parameter<int>("gps_utc_leap_seconds", -1);
     config.enable_rover_rtcm = declare_parameter<bool>("rover_rtcm_enabled", false);
     config.device_serial = declare_parameter<std::string>("device_serial", "");
+    config.transport = declare_parameter<std::string>("transport", "auto");
+    config.network_host = declare_parameter<std::string>("network_host", "");
+    config.network_port = declare_parameter<int64_t>("network_port", 7443);
+    config.network_connect_timeout_ms = declare_parameter<int64_t>(
+        "network_connect_timeout_ms", 5000);
+    config.network_token_env = declare_parameter<std::string>(
+        "network_token_env", "PRISM_NETWORK_TOKEN");
     config.rklocal_socket = declare_parameter<std::string>(
         "rklocal_socket", "/run/prism/stream.sock");
 #ifdef PRISM_ROS_RKLOCAL
     RCLCPP_INFO(get_logger(), "SDK transport: RK-local (ARM64 Unix socket)");
 #else
-    RCLCPP_INFO(get_logger(), "SDK transport: USB");
+    RCLCPP_INFO(get_logger(), "SDK host transport: %s",
+                config.transport == "auto" ? "usb" : config.transport.c_str());
 #endif
     config.enable_camera = declare_parameter<bool>("camera_enabled", true);
     config.enable_board_imu =
@@ -298,7 +308,7 @@ class PrismRos2Node : public rclcpp::Node {
 
     // MJPEG frames can exceed one megabyte in noisy scenes. Reliable delivery
     // avoids losing the complete DDS sample when one UDP fragment is dropped.
-    auto camera_qos = rclcpp::QoS(rclcpp::KeepLast(2))
+    auto camera_qos = rclcpp::QoS(rclcpp::KeepLast(8))
                           .reliable()
                           .durability_volatile();
     // Large point clouds and IMU packets can lose samples with best-effort
@@ -307,6 +317,12 @@ class PrismRos2Node : public rclcpp::Node {
     // consumers may explicitly retain the previous best-effort policy.
     const bool reliable_sensor_qos =
         declare_parameter<bool>("reliable_sensor_qos", true);
+    reliable_sensor_qos_ = reliable_sensor_qos;
+    if constexpr (!dds_ack_supported_) {
+      RCLCPP_WARN(get_logger(),
+                  "This ROS2 build lacks DDS acknowledgment support; bounded publication "
+                  "confirmation is unavailable. Use a newer ROS2 distribution for this protection.");
+    }
     const auto sensor_qos = [reliable_sensor_qos](size_t depth) {
       auto qos = rclcpp::QoS(rclcpp::KeepLast(depth)).durability_volatile();
       return reliable_sensor_qos ? qos.reliable() : qos.best_effort();
@@ -387,6 +403,7 @@ class PrismRos2Node : public rclcpp::Node {
   }
 
   void run() { driver_->run([]() { return rclcpp::ok(); }); }
+  void requestStop() noexcept { driver_->requestStop(); }
 
  private:
   void createServices() {
@@ -935,6 +952,29 @@ class PrismRos2Node : public rclcpp::Node {
     rover_rtcm_publisher_->publish(message);
   }
 
+  template <typename Publisher>
+  void acknowledgePublication(Publisher& publisher,
+                              prism_ros_adapter::PublicationAckWindow& window,
+                              bool reliable) {
+   if constexpr (prism_ros_adapter::HasPublicationAckWait<typename Publisher::element_type>::value) {
+    bool confirmed=false;
+    try {
+      confirmed=window.published(reliable,publisher->get_subscription_count(),
+          [&](auto timeout){return publisher->wait_for_all_acked(timeout);});
+    } catch(const std::exception& error) {
+      // Continue publishing other lanes. No retry, retimestamp or silent drop.
+      RCLCPP_ERROR_THROTTLE(get_logger(),*get_clock(),1000,
+                           "DDS acknowledgment failed: %s",error.what());
+    }
+    if(!confirmed) {
+      dds_ack_timeouts_.fetch_add(1);
+      RCLCPP_ERROR_THROTTLE(get_logger(),*get_clock(),1000,
+                           "DDS delivery unconfirmed: bounded acknowledgment failed for %s",
+                           publisher->get_topic_name());
+    }
+   }  // Older ROS2 builds retain bounded queues, not a fabricated ACK result.
+  }
+
   void publishCamera(const prism_ros_adapter::CameraFrameSet& frame) {
     const auto stamp = rosTime(frame.timestamp_ns);
     for (size_t i = 0; i < camera_publishers_.size(); ++i) {
@@ -945,6 +985,7 @@ class PrismRos2Node : public rclcpp::Node {
       message.format = "jpeg";
       message.data = frame.jpeg[i];
       camera_publishers_[i]->publish(message);
+      acknowledgePublication(camera_publishers_[i],camera_ack_[i],true);
     }
 
     prism_ros_msgs::msg::CameraFrameMetadata metadata;
@@ -972,6 +1013,8 @@ class PrismRos2Node : public rclcpp::Node {
     message.angular_velocity.y = sample.angular_velocity_rad_s[1];
     message.angular_velocity.z = sample.angular_velocity_rad_s[2];
     board_imu_publishers_[sample.sensor_id]->publish(message);
+    acknowledgePublication(board_imu_publishers_[sample.sensor_id],
+                           board_imu_ack_[sample.sensor_id],reliable_sensor_qos_);
   }
 
   void publishLidar(const prism_ros_adapter::LidarPointBatch& batch) {
@@ -1050,6 +1093,17 @@ class PrismRos2Node : public rclcpp::Node {
                            ? diagnostic_msgs::msg::DiagnosticStatus::OK
                            : diagnostic_msgs::msg::DiagnosticStatus::ERROR;
     diagnostic.message = status.error.empty() ? status.state : status.error;
+    if (!dds_ack_supported_ && status.error.empty()) {
+      diagnostic.level = diagnostic_msgs::msg::DiagnosticStatus::WARN;
+      diagnostic.message = status.state + "; DDS acknowledgment API unavailable";
+    }
+    const auto ack_timeouts=dds_ack_timeouts_.load();
+    if(ack_timeouts && status.error.empty()) {
+      diagnostic.level=diagnostic_msgs::msg::DiagnosticStatus::WARN;
+      diagnostic.message=status.state+"; DDS delivery unconfirmed";
+    }
+    diagnostic.values.push_back(keyValue("dds_ack_timeouts",std::to_string(ack_timeouts)));
+    diagnostic.values.push_back(keyValue("dds_ack_supported", dds_ack_supported_ ? "true" : "false"));
     diagnostic.values.push_back(
         keyValue("usb3_connected", status.usb3_connected ? "true" : "false"));
     diagnostic.values.push_back(keyValue(
@@ -1059,6 +1113,9 @@ class PrismRos2Node : public rclcpp::Node {
                  status.sensor_board_time_synced ? "true" : "false"));
     diagnostic.values.push_back(
         keyValue("camera_frame_sets", std::to_string(status.camera_frame_sets)));
+    diagnostic.values.push_back(keyValue("camera_dispatch_depth", std::to_string(status.camera_dispatch_depth)));
+    diagnostic.values.push_back(keyValue("camera_dispatch_peak", std::to_string(status.camera_dispatch_peak)));
+    diagnostic.values.push_back(keyValue("camera_dispatch_capacity", "8"));
     diagnostic.values.push_back(
         keyValue("imu0_samples", std::to_string(status.board_imu_samples[0])));
     diagnostic.values.push_back(
@@ -1084,6 +1141,14 @@ class PrismRos2Node : public rclcpp::Node {
   }
 
   std::string topic_prefix_;
+  static constexpr bool dds_ack_supported_ =
+      prism_ros_adapter::HasPublicationAckWait<rclcpp::Publisher<sensor_msgs::msg::Imu>>::value &&
+      prism_ros_adapter::HasPublicationAckWait<rclcpp::Publisher<sensor_msgs::msg::CompressedImage>>::value;
+  bool reliable_sensor_qos_=true;
+  std::atomic<uint64_t> dds_ack_timeouts_{0};
+  std::array<prism_ros_adapter::PublicationAckWindow,4> camera_ack_;
+  std::array<prism_ros_adapter::PublicationAckWindow,2> board_imu_ack_{
+      prism_ros_adapter::PublicationAckWindow(64),prism_ros_adapter::PublicationAckWindow(64)};
   std::string camera_frame_prefix_;
   std::string board_imu_frame_prefix_;
   std::string lidar_frame_;
@@ -1150,16 +1215,31 @@ int main(int argc, char** argv) {
   rclcpp::init(argc, argv);
   try {
     auto node = std::make_shared<PrismRos2Node>();
-    std::thread spinner([node]() { rclcpp::spin(node); });
+    // Construct the executor while the context is valid. An immediate open
+    // failure (e.g. missing network password) must not race its construction
+    // against shutdown in a newly started thread and call std::terminate.
+    rclcpp::executors::SingleThreadedExecutor executor;
+    executor.add_node(node);
+    std::exception_ptr spin_error;
+    std::thread spinner([&]() {
+      try { executor.spin(); }
+      catch (...) {
+        spin_error = std::current_exception();
+        node->requestStop();
+      }
+    });
     try {
       node->run();
     } catch (...) {
+      executor.cancel();
       rclcpp::shutdown();
       if (spinner.joinable()) spinner.join();
       throw;
     }
+    executor.cancel();
     rclcpp::shutdown();
     if (spinner.joinable()) spinner.join();
+    if (spin_error) std::rethrow_exception(spin_error);
     return 0;
   } catch (const std::exception& error) {
     RCLCPP_FATAL(rclcpp::get_logger("prism_ros_driver"), "%s", error.what());

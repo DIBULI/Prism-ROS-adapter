@@ -1,4 +1,9 @@
 device_serial: ""
+transport: "auto"  # USB by default; select network explicitly for Ethernet.
+network_host: ""
+network_port: 7443
+network_connect_timeout_ms: 5000
+network_token_env: "PRISM_NETWORK_TOKEN"  # Environment variable NAME only.
 topic_prefix: "/prism"
 navigation_enabled: true
 gnss_raw_enabled: true

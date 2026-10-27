@@ -244,6 +244,16 @@ class PrismRos1Node {
     private_node_.param("gps_utc_leap_seconds", config.gps_utc_leap_seconds, -1);
     private_node_.param("rover_rtcm_enabled", config.enable_rover_rtcm, false);
     private_node_.param("device_serial", config.device_serial, std::string{});
+    private_node_.param("transport", config.transport, std::string("auto"));
+    private_node_.param("network_host", config.network_host, std::string{});
+    int network_port = 7443;
+    int network_timeout = 5000;
+    private_node_.param("network_port", network_port, network_port);
+    private_node_.param("network_connect_timeout_ms", network_timeout, network_timeout);
+    config.network_port = network_port;
+    config.network_connect_timeout_ms = network_timeout;
+    private_node_.param("network_token_env", config.network_token_env,
+                        std::string("PRISM_NETWORK_TOKEN"));
     private_node_.param("camera_enabled", config.enable_camera, true);
     private_node_.param("board_imu_enabled", config.enable_board_imu, true);
     private_node_.param("lidar_enabled", config.enable_lidar, false);
@@ -295,7 +305,7 @@ class PrismRos1Node {
       camera_publishers_[i] = node_.advertise<sensor_msgs::CompressedImage>(
           topic(topic_prefix_, "camera" + std::to_string(i) +
                                    "/image/compressed"),
-          2);
+          8);
     }
     camera_metadata_publisher_ =
         node_.advertise<prism_ros_msgs::CameraFrameMetadata>(
@@ -1047,6 +1057,9 @@ class PrismRos1Node {
                  status.sensor_board_time_synced ? "true" : "false"));
     diagnostic.values.push_back(
         keyValue("camera_frame_sets", std::to_string(status.camera_frame_sets)));
+    diagnostic.values.push_back(keyValue("camera_dispatch_depth", std::to_string(status.camera_dispatch_depth)));
+    diagnostic.values.push_back(keyValue("camera_dispatch_peak", std::to_string(status.camera_dispatch_peak)));
+    diagnostic.values.push_back(keyValue("camera_dispatch_capacity", "8"));
     diagnostic.values.push_back(
         keyValue("imu0_samples", std::to_string(status.board_imu_samples[0])));
     diagnostic.values.push_back(

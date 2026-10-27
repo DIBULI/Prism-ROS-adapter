@@ -7,7 +7,7 @@ proprietary; see [license scope](LICENSING.md) and
 [![ROS release tag test](https://github.com/DIBULI/Prism-ROS-adapter/actions/workflows/release-tag-test.yml/badge.svg)](https://github.com/DIBULI/Prism-ROS-adapter/actions/workflows/release-tag-test.yml)
 
 Prism ROS Adapter exposes DIBULI Prism data as standard ROS topics. The shared
-driver supports the Host USB SDK (ROS 1/2) and the RK-local SDK (ROS 2 on RK
+driver supports the Host USB/network SDK (ROS 1/2) and the RK-local SDK (ROS 2 on RK
 ARM64). The pinned SDK submodule provides public headers and binary libraries.
 
 ## Supported ROS releases
@@ -30,22 +30,25 @@ libstdc++ and glibc while building in the target ROS environment.
 
 ## Prism SDK Git submodule
 
-This repository pins Prism SDK `1.2.0` as the `third_party/Prism-SDK` Git
-submodule. It contains the Host SDK 1.2.0 runtime/ABI 18 required by Agent 1.2.0.
-The pinned [SDK v1.2.0](https://github.com/DIBULI/Prism-SDK/releases/tag/v1.2.0)
+This repository pins Prism SDK `1.3.0` (commit
+`ac785dfb94fa0838d6f54b7f20ffed14848ea000`) as the `third_party/Prism-SDK` Git
+submodule. It contains the Host SDK 1.3.0 runtime/ABI 19 for Agent 1.3.0.
+The pinned [SDK v1.3.0](https://github.com/DIBULI/Prism-SDK/releases/tag/v1.3.0)
 includes the aligned RK-local C++ API and interface guides under `docs/`.
 This refresh updates the SDK libraries and adds raw GNSS observation/ephemeris
 and module CORS topics. RTK workflow/continuous-position examples retain English
 usage comments in their source. Rebuild generated messages and consumers.
-The default build uses the Host USB client. A ROS 2 build with
+The default host build selects USB or Ethernet at runtime via `transport`.
+A ROS 2 build with
 `-DPRISM_TRANSPORT=rklocal` instead links the ARM64 RK-local SDK; the two
-transports are separate binaries, not a runtime connection-mode toggle.
+SDK backends are separate binaries; the RK-local binary cannot select TCP/USB.
 
 This adapter does not provide offline dataset downloads (no service, topic or
 CLI). SDK raw-file export is for SDK/Viewer consumers; ROS bag conversion is a
 Viewer function, separate from this live ROS adapter.
 
-Use Agent 1.2.0 and Sensor Board 0.4.27. Do not mix SDK headers and libraries
+Use Agent 1.3.0 with its matching product-specific Sensor Board firmware
+(current delivery: 0.5.2). Do not mix SDK headers and libraries
 from different versions.
 
 Clone recursively:
@@ -76,8 +79,8 @@ The supported binary mapping is:
 | x86-64 | All supported distributions | `runtime/ros/linux-x64` |
 | ARM64 | All supported distributions | `runtime/ros/linux-arm64` |
 
-Both platform payloads are part of the pinned Prism SDK `1.2.0` release and include
-the Host SDK 1.2.0 runtime (Runtime API 18), retaining `800 Hz` IMU support. The
+Both platform payloads are part of the pinned Prism SDK `1.3.0` release and include
+the Host SDK 1.3.0 runtime (Runtime API 19), retaining `800 Hz` IMU support. The
 build scripts detect x86-64 or ARM64 automatically;
 `PRISM_ROS_ARCH=arm64` can be used when building ARM64 through emulation on an
 x86-64 host. Verify the submodule and all ROS runtime prefixes with:
@@ -85,6 +88,51 @@ x86-64 host. Verify the submodule and all ROS runtime prefixes with:
 ```bash
 ./scripts/verify_sdk_submodule.sh all
 ```
+
+## Ethernet / 网口连接（ROS 1、ROS 2）
+
+Use the normal host build; no `-DPRISM_TRANSPORT=network` rebuild is needed.
+Set `transport: network`, `network_host` to the device's numeric IPv4/IPv6 address,
+and `network_port: 7443`. `transport: auto` retains USB by default (or the Unix
+socket in an RK-local build). Network failures never fall back to another device.
+An optional `device_serial` verifies the connected device identity before START.
+
+The matching Agent must have its network SDK listener enabled. This is not the
+Web HTTP port or a LiDAR address setting, and the adapter does not reconfigure
+device networking. Use the **Web admin login password**, not an old TLS pairing
+token. The password is read from `PRISM_NETWORK_TOKEN` (or the environment name
+specified by `network_token_env`); never put it in YAML, ROS parameters, URLs,
+shell history or command-line arguments. The SDK uses **plaintext TCP**: only
+connect on a trusted LAN. Environment variables are not a secure vault; restrict
+access to the ROS host and unset the variable when finished.
+
+Example in Bash (replace the example IP; no real device is selected by default):
+
+```bash
+read -r -s -p 'Device Web password: ' PRISM_NETWORK_TOKEN
+printf '\n'
+export PRISM_NETWORK_TOKEN
+# ROS 2, after sourcing the workspace:
+ros2 launch prism_ros_driver network.launch.py host:=192.168.1.5
+# OR ROS 1:
+# roslaunch prism_ros_driver network.launch host:=192.168.1.5
+unset PRISM_NETWORK_TOKEN
+```
+
+`config:=/absolute/path/to/your.yaml` retains all normal sensor/topic options.
+`port:=7443` and `token_env:=PRISM_NETWORK_TOKEN` are optional launch arguments.
+`network_connect_timeout_ms` is bounded to 100..60000 ms (default 5000).
+For a Docker deployment, forward the variable by name with
+`--env PRISM_NETWORK_TOKEN` and ensure the device address is reachable. No USB
+device mapping is required for a network-only session.
+
+Camera/IMU/LiDAR/GNSS/RTK keep the existing topics and receive/ACK pipeline.
+Camera output remains the adapter's JPEG preview path, not a new RAW12 recording
+interface. SDK negotiation caps wired camera delivery at 20 FPS (Wi-Fi/unknown:
+10 FPS); lower native rates such as 415M 1/2 FPS stay lower. IMU/GNSS/LiDAR rates
+are not changed. This connection feature does not guarantee lossless network
+delivery; existing gap, CRC and queue warnings remain enabled. Ctrl-C follows
+the same STOP/cleanup path as USB; a disconnected link cannot confirm STOP.
 
 ## Published topics
 
@@ -124,7 +172,7 @@ frames the receiver actually emits; it does not convert proprietary observations
 to RTCM. See [GNSS / RTK interfaces](docs/navigation.md) for freshness, covariance,
 timestamp and recording limitations.
 
-ROS 2 publishes compressed images with reliable, volatile QoS and depth 2.
+ROS 2 publishes compressed images with reliable, volatile QoS and depth 8.
 Camera metadata, both IMU families and point clouds also default to reliable,
 volatile delivery with independent bounded queues. Subscribers used for recording
 should request reliable QoS as well; best-effort subscribers remain compatible
@@ -132,6 +180,16 @@ but do not request retransmission. `reliable_sensor_qos=false` restores best-eff
 metadata/IMU/point-cloud publishing for latency-first uses; camera and GNSS policies
 are unchanged. Reliable delivery reduces transport loss but cannot guarantee
 lossless recording when consumers or storage cannot keep up.
+
+Camera and board-IMU publication workers use bounded DDS ACK windows (one image
+per lane / 64 IMU samples, at most 100 ms per check). This does not run on the SDK
+receive thread, change acquisition rate or retimestamp samples. Timeout/error
+counts are exposed as `dds_ack_timeouts` and warnings; other lanes are still
+published. Best-effort IMU and streams without subscribers do not wait. Older
+ROS2 APIs such as Foxy have no public ACK-wait operation: they retain bounded
+queues and report `dds_ack_supported=false` with a warning, rather than claiming
+confirmation. DDS ACKs confirm middleware reception, not completion of a subscriber callback or disk
+write. Queues remain finite and slow consumers can still lose data.
 
 ### Sensor data loss warnings (ROS 1 and ROS 2)
 
@@ -487,7 +545,7 @@ See [v1.2.0 breaking changes](docs/update/v1.2.0.md) before upgrading.
 ## Prerequisites
 
 1. Prism Agent and Host USB SDK runtime must have exactly the same version.
-   This adapter pins Prism SDK `1.2.0` and therefore requires Agent `1.2.0`.
+   This adapter pins Prism SDK `1.3.0` and therefore requires Agent `1.3.0`.
 2. Select the SDK submodule runtime prefix for the host using the table above and
    install that complete binary prefix under `/opt/prism-sdk`. For example,
    on x86-64:
@@ -799,6 +857,7 @@ python3 scripts/verify_lidar_pointcloud_ros2.py
 
 ## Update notes
 
+- [Version 1.3.0 — network support, receive-loop and publication fixes](docs/update/v1.3.0.txt)
 - [Version 1.2.0](docs/update/v1.2.0.md)
 - [版本 1.2.0（中文）](docs/update/v1.2.0.zh-CN.md)
 

@@ -74,6 +74,7 @@ case "${DISTRO}" in
       done
       grep -q "uint32 gnss_uart_baud" <<<"${device_config_service}"
       test -f "$(rospack find prism_ros_driver)/launch/prism.launch"
+      test -f "$(rospack find prism_ros_driver)/launch/network.launch"
     '
     check_linkage "${TEST_IMAGE}" \
       /opt/prism-ros1/lib/prism_ros_driver/prism_ros_driver_node
@@ -127,6 +128,10 @@ case "${DISTRO}" in
       grep -q "uint32 gnss_uart_baud" <<<"${device_config_service}"
       python3 /opt/src/prism-ros-adapter/scripts/verify_navigation_ros2.py
       ros2 launch prism_ros_driver prism.launch.py --show-args >/dev/null
+      ros2 launch prism_ros_driver network.launch.py --show-args >/dev/null
+      ROS_DOMAIN_ID=197 ROS_LOCALHOST_ONLY=1 \
+        python3 /opt/src/prism-ros-adapter/scripts/verify_network_ros2.py \
+        /opt/prism-ros2/lib/prism_ros_driver/prism_ros_driver_node
     '
     check_linkage "${TEST_IMAGE}" \
       /opt/prism-ros2/lib/prism_ros_driver/prism_ros_driver_node

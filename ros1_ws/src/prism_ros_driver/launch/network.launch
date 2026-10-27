@@ -1,0 +1,14 @@
+<launch>
+  <arg name="config" default="$(find prism_ros_driver)/config/default.yaml" />
+  <arg name="host" />
+  <arg name="port" default="7443" />
+  <arg name="token_env" default="PRISM_NETWORK_TOKEN" />
+  <node pkg="prism_ros_driver" type="prism_ros_driver_node"
+        name="prism_ros_driver" output="screen">
+    <rosparam command="load" file="$(arg config)" />
+    <param name="transport" value="network" type="str" />
+    <param name="network_host" value="$(arg host)" type="str" />
+    <param name="network_port" value="$(arg port)" type="int" />
+    <param name="network_token_env" value="$(arg token_env)" type="str" />
+  </node>
+</launch>

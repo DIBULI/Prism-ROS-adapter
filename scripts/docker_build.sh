@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SDK_RUNTIME_VERSION="1.2.0"
+SDK_RUNTIME_VERSION="1.3.0"
 SDK_REPOSITORY_ROOT="${PRISM_USB_SDK_ROOT:-${ROOT_DIR}/third_party/Prism-SDK}"
 SDK_PREFIX_ROOT="${SDK_REPOSITORY_ROOT}/runtime/ros"
 SDK_PREFIX_OVERRIDE="${PRISM_USB_SDK_PREFIX:-}"

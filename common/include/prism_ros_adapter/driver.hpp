@@ -25,6 +25,13 @@ enum class LogLevel {
 };
 
 struct DriverConfig {
+  // auto preserves the build's existing default (USB or RK-local).
+  std::string transport = "auto";
+  std::string network_host;
+  int64_t network_port = 7443;
+  int64_t network_connect_timeout_ms = 5000;
+  // Name only: the password is never a ROS parameter or saved YAML value.
+  std::string network_token_env = "PRISM_NETWORK_TOKEN";
   std::string device_serial;
   std::string rklocal_socket = "/run/prism/stream.sock";
   bool enable_navigation = true;
@@ -265,6 +272,8 @@ struct DriverStatus {
   uint64_t lidar_sdk_timestamp_selected = 0;
   uint64_t dropped_unsynchronized = 0;
   uint64_t dropped_camera_dispatch = 0;
+  uint64_t camera_dispatch_depth = 0;
+  uint64_t camera_dispatch_peak = 0;
   uint64_t dropped_lidar_dispatch = 0;
   uint64_t dropped_imu_dispatch = 0;
 };

@@ -1,6 +1,14 @@
 prism_ros_driver:
   ros__parameters:
     device_serial: ""
+    # auto = USB in the host build, Unix socket in the RK-local build.
+    # For Ethernet: network + the device numeric IP. No USB fallback.
+    transport: "auto"
+    network_host: ""
+    network_port: 7443
+    network_connect_timeout_ms: 5000
+    # Environment variable NAME, not the Web login password itself.
+    network_token_env: "PRISM_NETWORK_TOKEN"
     # Used only by a PRISM_TRANSPORT=rklocal build on RK (not a TCP endpoint).
     rklocal_socket: "/run/prism/stream.sock"
     topic_prefix: "/prism"

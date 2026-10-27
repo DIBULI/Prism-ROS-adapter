@@ -177,6 +177,26 @@ struct DriverDataHealthTest {
     driver.reportHealth(true);
     require(has(logs, "transport", "dispatch_drop+=1") && has(logs, "transport", "publish_callback_error+=1"),
             "real dispatch queue loss/exception not logged");
+    // Delayed queries can release a burst of complete camera sets. All eight
+    // staged sets must drain; overflow reporting remains tested above.
+    std::promise<void> burst_entered, burst_release, burst_done;
+    auto burst_ready = burst_release.get_future().share();
+    auto burst_finished = burst_done.get_future();
+    std::atomic<unsigned> burst_count{0};
+    DispatchQueue<int> burst(8, [&](const int&) {
+      if (burst_count.load() == 0) { burst_entered.set_value(); burst_ready.wait(); }
+      if (++burst_count == 9) burst_done.set_value();
+    });
+    burst.start(); burst.push(0); burst_entered.get_future().wait();
+    for (int n = 1; n <= 8; ++n) burst.push(n);
+    require(burst.depth() == 8 && burst.peak() == 8 && burst.dropped() == 0,
+            "bounded burst queue accounting incorrect");
+    burst_release.set_value();
+    require(burst_finished.wait_for(std::chrono::seconds(2)) == std::future_status::ready,
+            "camera burst did not drain");
+    burst.stop();
+    require(burst_count == 9 && burst.depth() == 0 && burst.dropped() == 0,
+            "camera burst silently lost data");
     for (const auto& log : logs) std::cout << log << '\n';
     std::cout << "Driver receive-path fault injection passed; no device opened\n";
   }
