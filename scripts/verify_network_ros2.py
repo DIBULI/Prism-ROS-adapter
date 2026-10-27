@@ -16,6 +16,7 @@ import time
 import rclpy
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import CompressedImage, Imu
+from diagnostic_msgs.msg import DiagnosticArray
 from prism_ros_msgs.msg import CameraFrameMetadata
 from prism_ros_msgs.srv import ControlStreams
 from verify_rklocal_ros2 import MockAgent
@@ -41,6 +42,16 @@ def main():
     counts = collections.Counter()
     qos = QoSProfile(depth=1000, reliability=ReliabilityPolicy.RELIABLE)
     subs = []
+    ready = False
+
+    def diagnostic(msg):
+        nonlocal ready
+        # DDS endpoint discovery precedes SDK authentication/identity setup.
+        # The driver publishes idle only after enabling its command queue.
+        ready = any(item.name == 'Prism ROS adapter' and item.hardware_id == 'MOCK'
+                    and item.message.split(';', 1)[0] == 'idle' for item in msg.status)
+
+    diagnostic_sub = node.create_subscription(DiagnosticArray, '/diagnostics', diagnostic, 10)
 
     def camera(index, msg):
         assert bytes(msg.data) == bytes([255, index, 217]), 'camera mapping changed'
@@ -82,7 +93,7 @@ def main():
                     # Match the test endpoints before sending START, not after
                     # filling the stream queues. Keep spinning while discovering
                     # the service so the observer does not block its callbacks.
-                    spin_until(lambda: client.service_is_ready() and
+                    spin_until(lambda: ready and client.service_is_ready() and
                                all(node.count_publishers(sub.topic_name) == 1 for sub in subs))
                     assert mock.commands[6] == mock.commands[8] == 0
                     start = ControlStreams.Request()
