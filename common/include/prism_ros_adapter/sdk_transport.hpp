@@ -15,8 +15,8 @@ using Client = prism::Client;
 inline constexpr const char* kTransport = "usb";
 #endif
 
-// RK-local assembles and ACKs video in its receive thread, even when raw
-// events are enabled. A second ACK from the ROS assembler would be incorrect.
+// RK-local assembles and ACKs legacy JPEG sets only. Independent profiles
+// bypass that C assembler and require the separate helper below.
 inline void acknowledgeVideo(Client& client, uint32_t frame_id) {
 #ifdef PRISM_ROS_RKLOCAL
   (void)client;
@@ -24,6 +24,10 @@ inline void acknowledgeVideo(Client& client, uint32_t frame_id) {
 #else
   client.sendVideoAck(frame_id);
 #endif
+}
+
+inline void acknowledgeProfileVideo(Client& client, uint32_t transfer_id) {
+  client.sendVideoAck(transfer_id);
 }
 
 #ifdef PRISM_ROS_RKLOCAL
@@ -47,9 +51,12 @@ class ImuStream {
     }
   }
   void stop() {
+    stop({});
+  }
+  void stop(const std::function<void(const prism::Frame&)>& tail) {
     if (!active_) return;
     active_ = false;
-    if (client_.isOpen()) client_.stopImu();
+    if (client_.isOpen()) client_.stopImu(tail);
   }
   bool handleFrame(const prism::Frame& frame) {
     if (frame.type != prism::FrameType::ImuSample) return false;

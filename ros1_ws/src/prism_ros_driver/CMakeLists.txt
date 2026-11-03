@@ -12,6 +12,8 @@ find_package(catkin REQUIRED COMPONENTS
 )
 find_package(PrismUsbSdk 1.3.0 EXACT CONFIG REQUIRED)
 find_package(Threads REQUIRED)
+find_path(PRISM_ZSTD_INCLUDE zstd.h REQUIRED)
+find_library(PRISM_ZSTD_LIBRARY NAMES zstd REQUIRED)
 
 catkin_package(CATKIN_DEPENDS
   diagnostic_msgs prism_ros_msgs roscpp sensor_msgs std_msgs)
@@ -22,13 +24,14 @@ add_executable(prism_ros_driver_node
   ${CMAKE_CURRENT_SOURCE_DIR}/../../../common/src/lidar_frame_accumulator.cpp
 )
 target_compile_features(prism_ros_driver_node PRIVATE cxx_std_17)
+target_include_directories(prism_ros_driver_node PRIVATE ${PRISM_ZSTD_INCLUDE})
 target_include_directories(prism_ros_driver_node PRIVATE
   ${catkin_INCLUDE_DIRS}
   ${CMAKE_CURRENT_SOURCE_DIR}/../../../common/include
 )
 target_link_libraries(prism_ros_driver_node
   ${catkin_LIBRARIES}
-  Prism::UsbSdk Threads::Threads
+  Prism::UsbSdk Threads::Threads ${PRISM_ZSTD_LIBRARY}
 )
 add_dependencies(prism_ros_driver_node
   ${catkin_EXPORTED_TARGETS}

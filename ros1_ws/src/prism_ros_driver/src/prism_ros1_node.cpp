@@ -51,6 +51,9 @@
 #include <prism_ros_msgs/SyncSystemTime.h>
 #include <ros/ros.h>
 #include <sensor_msgs/CompressedImage.h>
+#include <sensor_msgs/Image.h>
+#include <prism_ros_msgs/ProfileCameraMetadata.h>
+#include "prism_ros_adapter/profile_camera.hpp"
 #include <sensor_msgs/Imu.h>
 #include <sensor_msgs/PointCloud2.h>
 #include <sensor_msgs/PointField.h>
@@ -307,6 +310,12 @@ class PrismRos1Node {
                                    "/image/compressed"),
           8);
     }
+    for (size_t i=0;i<4;++i) {
+      raw_camera_publishers_[i] = node_.advertise<sensor_msgs::Image>(
+          topic(topic_prefix_, "camera"+std::to_string(i)+"/image_raw"), 2);
+      profile_metadata_publishers_[i] = node_.advertise<prism_ros_msgs::ProfileCameraMetadata>(
+          topic(topic_prefix_, "camera"+std::to_string(i)+"/profile_metadata"), 8);
+    }
     camera_metadata_publisher_ =
         node_.advertise<prism_ros_msgs::CameraFrameMetadata>(
             topic(topic_prefix_, "camera/metadata"), 8);
@@ -349,6 +358,7 @@ class PrismRos1Node {
       if(value.channel==0||value.channel==2) cors_raw_publisher_.publish(message);
     };
     callbacks.camera = [this](const auto& value) { publishCamera(value); };
+    callbacks.profile_camera = [this](const auto& value) { publishProfileCamera(value); };
     callbacks.board_imu = [this](const auto& value) { publishBoardImu(value); };
     callbacks.lidar_points =
         [this](const auto& value) { publishLidar(value); };
@@ -930,6 +940,35 @@ class PrismRos1Node {
     rover_rtcm_publisher_.publish(message);
   }
 
+  void publishProfileCamera(const prism_ros_adapter::ProfileCameraImage& frame) {
+    prism_ros_msgs::ProfileCameraMetadata metadata;
+    metadata.header.frame_id = camera_frame_prefix_ + std::to_string(frame.camera);
+    metadata.header.stamp = rosTime(frame.source_timestamp_us * 1000u);
+    // The native protocol does not attest UTC. Never substitute host arrival.
+    metadata.camera=frame.camera; metadata.format=frame.format;
+    metadata.source_bits=frame.source_bits; metadata.bayer=frame.bayer;
+    metadata.timing_mode=frame.timing_mode; metadata.transfer_id=frame.transfer_id;
+    metadata.source_frame_id=frame.source_frame_id; metadata.source_frame_valid=frame.source_frame_valid;
+    metadata.trigger_sequence=frame.trigger_sequence; metadata.source_timestamp_us=frame.source_timestamp_us;
+    metadata.acquisition_epoch=frame.acquisition_epoch;
+    metadata.timestamp_utc_valid=false; metadata.image_published=frame.image_published;
+    metadata.width=frame.width; metadata.height=frame.height;
+    metadata.exposure_us=frame.exposure_us; metadata.gain_x1024=frame.gain_x1024;
+    if (frame.image_published) {
+      if (frame.source_bits==8) {
+        sensor_msgs::Image image;
+        image.header=metadata.header; image.width=frame.width; image.height=frame.height;
+        image.encoding="8UC1"; image.is_bigendian=false; image.step=frame.width; image.data=frame.data;
+        raw_camera_publishers_.at(frame.camera).publish(image);
+      } else {
+        sensor_msgs::CompressedImage image; image.header=metadata.header;
+        image.format="jpeg"; image.data=frame.data;
+        camera_publishers_.at(frame.camera).publish(image);
+      }
+    }
+    profile_metadata_publishers_.at(frame.camera).publish(metadata);
+  }
+
   void publishCamera(const prism_ros_adapter::CameraFrameSet& frame) {
     const ros::Time stamp = rosTime(frame.timestamp_ns);
     for (size_t i = 0; i < camera_publishers_.size(); ++i) {
@@ -1092,6 +1131,7 @@ class PrismRos1Node {
   std::string lidar_frame_;
   std::string lidar_imu_frame_;
   std::array<ros::Publisher, 4> camera_publishers_;
+  std::array<ros::Publisher, 4> raw_camera_publishers_, profile_metadata_publishers_;
   ros::Publisher camera_metadata_publisher_;
   std::array<ros::Publisher, 2> board_imu_publishers_;
   ros::Publisher lidar_publisher_;

@@ -33,7 +33,6 @@ struct DriverDataHealthTest {
   }
   static void run() {
     using S = SensorDataHealth::Stream;
-    using I = SensorDataHealth::Issue;
     std::vector<std::string> logs;
     DriverCallbacks callbacks;
     callbacks.log = [&](LogLevel level, const std::string& text) {

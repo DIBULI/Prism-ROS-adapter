@@ -13,6 +13,7 @@ class LidarFrameAccumulator {
   static constexpr uint64_t kFramePeriodNs = 100000000ULL;
 
   std::vector<LidarPointBatch> append(LidarPointBatch batch);
+  std::vector<LidarPointBatch> finish();
   void reset() noexcept;
   size_t pendingPointCount() const noexcept;
 

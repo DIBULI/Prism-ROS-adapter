@@ -60,6 +60,8 @@ else()
 endif()
 message(STATUS "Prism ROS transport: ${PRISM_TRANSPORT}")
 find_package(Threads REQUIRED)
+find_path(PRISM_ZSTD_INCLUDE zstd.h REQUIRED)
+find_library(PRISM_ZSTD_LIBRARY NAMES zstd REQUIRED)
 
 add_executable(prism_ros_driver_node
   src/prism_ros2_node.cpp
@@ -67,6 +69,7 @@ add_executable(prism_ros_driver_node
   ${CMAKE_CURRENT_SOURCE_DIR}/../../../common/src/lidar_frame_accumulator.cpp
 )
 target_compile_features(prism_ros_driver_node PRIVATE cxx_std_17)
+target_include_directories(prism_ros_driver_node PRIVATE ${PRISM_ZSTD_INCLUDE})
 if(PRISM_TRANSPORT STREQUAL "rklocal")
   target_compile_definitions(prism_ros_driver_node PRIVATE PRISM_ROS_RKLOCAL=1)
 endif()
@@ -77,7 +80,7 @@ if(COMMAND ament_target_dependencies)
   # Humble/Jazzy keep the compatibility helper. Kilted deprecates it.
   ament_target_dependencies(prism_ros_driver_node
     diagnostic_msgs prism_ros_msgs rclcpp sensor_msgs std_msgs)
-  target_link_libraries(prism_ros_driver_node ${PRISM_TRANSPORT_TARGET} Threads::Threads)
+  target_link_libraries(prism_ros_driver_node ${PRISM_TRANSPORT_TARGET} Threads::Threads ${PRISM_ZSTD_LIBRARY})
 else()
   # Lyrical and newer use only modern imported CMake targets.
   target_link_libraries(prism_ros_driver_node
@@ -87,7 +90,7 @@ else()
     ${std_msgs_TARGETS}
     rclcpp::rclcpp
     sensor_msgs::sensor_msgs_library
-    ${PRISM_TRANSPORT_TARGET} Threads::Threads
+    ${PRISM_TRANSPORT_TARGET} Threads::Threads ${PRISM_ZSTD_LIBRARY}
   )
 endif()
 if(NOT MSVC)
@@ -111,7 +114,8 @@ if(BUILD_TESTING)
     target_compile_definitions(prism-driver-data-health-test PRIVATE PRISM_ROS_RKLOCAL=1)
   endif()
   target_include_directories(prism-driver-data-health-test PRIVATE ../../../common/include)
-  target_link_libraries(prism-driver-data-health-test ${PRISM_TRANSPORT_TARGET} Threads::Threads)
+  target_include_directories(prism-driver-data-health-test PRIVATE ${PRISM_ZSTD_INCLUDE})
+  target_link_libraries(prism-driver-data-health-test ${PRISM_TRANSPORT_TARGET} Threads::Threads ${PRISM_ZSTD_LIBRARY})
   add_test(NAME driver-data-health COMMAND prism-driver-data-health-test)
   set_tests_properties(driver-data-health PROPERTIES TIMEOUT 30)
 endif()

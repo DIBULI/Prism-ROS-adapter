@@ -20,6 +20,8 @@ class RecordingQosTest(unittest.TestCase):
             '/diagnostics': 256,
         }
         expected.update({f'/prism/camera{i}/image/compressed': 64 for i in range(4)})
+        expected.update({f'/prism/camera{i}/image_raw': 4 for i in range(4)})
+        expected.update({f'/prism/camera{i}/profile_metadata': 64 for i in range(4)})
         expected.update({f'/prism/{name}': 256 for name in (
             'gnss/timing', 'gnss/reception', 'gnss/observations', 'gnss/raw',
             'rtk/cors_rtcm', 'gnss/receiver', 'gnss/fix', 'rtk/receiver',
@@ -42,7 +44,7 @@ class RecordingQosTest(unittest.TestCase):
                 self.assertNotIn(key, parsed[current])
                 parsed[current][key] = value.strip()
         self.assertEqual(set(parsed), set(expected))
-        self.assertEqual(len(parsed), 21)
+        self.assertEqual(len(parsed), 29)
         for topic, depth in expected.items():
             self.assertEqual(parsed[topic], {
                 'history': 'keep_last', 'depth': str(depth),

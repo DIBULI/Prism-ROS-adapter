@@ -2,7 +2,7 @@ Prism ROS Adapter 1.3.0
 
 - Pin published Prism SDK 1.3.0 d4ac1e91c09137b21501fcc5a3a47db218021ee8,
   including matching headers and Linux x64/ARM64 runtime libraries.
-- Include the validated 415M RAW12 shared-trigger header helpers and their
+- Include the validated 415RSV0 RAW12 shared-trigger header helpers and their
   regression test. Transport ABI19/binaries and ROS JPEG/metadata topics remain
   unchanged; this does not add the Viewer RAW grouped-display feature to ROS.
 - Include required license files in RK-local container builds. Network smoke

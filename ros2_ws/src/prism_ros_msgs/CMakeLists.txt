@@ -36,6 +36,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/GetTimeSyncPort.srv"
   "srv/SetRoverRtcm.srv"
   "msg/CameraFrameMetadata.msg"
+  "msg/ProfileCameraMetadata.msg"
   "msg/DeviceConfiguration.msg"
   "msg/DeviceInfo.msg"
   "msg/LidarNetworkStatus.msg"

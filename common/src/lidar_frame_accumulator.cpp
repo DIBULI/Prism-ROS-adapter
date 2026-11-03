@@ -61,6 +61,13 @@ std::vector<LidarPointBatch> LidarFrameAccumulator::append(
   return completed;
 }
 
+std::vector<LidarPointBatch> LidarFrameAccumulator::finish() {
+  std::vector<LidarPointBatch> out;
+  if (!frame_.points.empty()) out.push_back(finishFrame());
+  reset();
+  return out;
+}
+
 void LidarFrameAccumulator::reset() noexcept {
   active_ = false;
   window_start_ns_ = 0;
