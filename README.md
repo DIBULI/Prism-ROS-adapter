@@ -897,8 +897,8 @@ Historical validation records under `docs/testing/` describe their original
 versions only; they are not current interface documentation.
 # Native RAW8 profile images (coordinated source update)
 
-415RSV0 uses GPU-native RAW8 profile capture (source 1/2 FPS); 1315
-uses its mixed JPEG/native RAW8 profile. 41M3 retains the existing JPEG path.
+415RSV0 uses GPU-native RAW8 profile capture (source 1/2 FPS); 21315V0
+uses its mixed JPEG/native RAW8 profile. 413GSV0 retains the existing JPEG path.
 These changes require the matching native8 SDK/Agent; stale prebuilt packages
 are not interchangeable. Host USB/network and the updated RK-local source API
 select the same GPU-only profile modes. RK-local preserves its no-argument

@@ -78,7 +78,7 @@ struct DriverDataHealthTest {
     };
     cb.board_imu=[&](const auto& s){samples.push_back(s.sample_id);};
     cb.lidar_points=[&](const auto& p){points+=p.points.size();};
-    Driver::Impl d(cfg,cb);d.device_model=mixed?prism::DeviceModel::Prism1315:prism::DeviceModel::Prism415RSV0;
+    Driver::Impl d(cfg,cb);d.device_model=mixed?prism::DeviceModel::Prism21315V0:prism::DeviceModel::Prism415RSV0;
     d.startDispatchers();
     std::unique_ptr<sdk::ImuStream> imu;std::unique_ptr<sdk::LidarStream> lidar;
     bool video=false,imu_on=false,lidar_on=false;
@@ -120,5 +120,5 @@ struct DriverDataHealthTest {
 int main(){original=makeImage();for(bool product:{false,true}){mixed=product;
   for(fault=0;fault<4;++fault){starts=stops=imu_starts=0;
     assert(!prism_rklocal_run_control(prism_ros_adapter::DriverDataHealthTest::exercise));}}
-  std::cout<<"PASS actual control cycles 415RSV0/1315: prior epoch RAW/JPEG/IMU/LiDAR fully published before settings/restart, reused IDs stay distinct, partial/callback failure blocks operation/restart, setting rejection resumes only after clean drain\n";
+  std::cout<<"PASS actual control cycles 415RSV0/21315V0: prior epoch RAW/JPEG/IMU/LiDAR fully published before settings/restart, reused IDs stay distinct, partial/callback failure blocks operation/restart, setting rejection resumes only after clean drain\n";
 }

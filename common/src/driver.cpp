@@ -635,9 +635,9 @@ struct Driver::Impl {
     profile_assembler.reset();
     ++profile_epoch;
     profile_camera = device_model == prism::DeviceModel::Prism415RSV0 ||
-                     device_model == prism::DeviceModel::Prism1315;
+                     device_model == prism::DeviceModel::Prism21315V0;
     if (!profile_camera) {
-      if (device_model != prism::DeviceModel::Prism41M3)
+      if (device_model != prism::DeviceModel::Prism413GSV0)
         throw std::runtime_error("supported product identity required before camera START");
       return client.startVideo1280x1024(config.camera_fps);
     }

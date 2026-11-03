@@ -98,7 +98,7 @@ class MockAgent:
             body[9:16] = bytes([1, 4, 1, 1, 1, 0, 15])
             struct.pack_into("<HH", body, 20, 800, 30)
             body[32:36] = b"MOCK"
-            body[255] = 1  # Fixed firmware product identity: 41M3.
+            body[255] = 1  # Fixed firmware product identity: 413GSV0.
             self.send(0x85, seq, body)
         elif kind in (6, 7):
             self.streaming = kind == 6
