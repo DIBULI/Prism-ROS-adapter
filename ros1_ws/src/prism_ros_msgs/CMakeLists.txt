@@ -17,6 +17,7 @@ add_message_files(FILES
   TimeSyncPortStatus.msg
   RoverRtcmStatus.msg
   RtcmData.msg
+  BatchIMUMessage.msg
   CameraFrameMetadata.msg
   DeviceConfiguration.msg
   DeviceInfo.msg

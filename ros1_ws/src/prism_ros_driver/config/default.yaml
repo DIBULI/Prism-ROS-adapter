@@ -15,6 +15,10 @@ camera_fps: 0
 board_imu_enabled: true
 imu_sensor_count: 0
 imu_rate_hz: 0
+# All samples retained; batch waiting is bounded.
+publish_legacy_imu: false
+imu_batch_size: 16
+imu_batch_max_delay_ms: 20
 lidar_enabled: false
 lidar_model: "mid360"
 lidar_network_apply_on_start: false

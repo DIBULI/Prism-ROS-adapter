@@ -12,6 +12,9 @@ CONFIG = ROOT / 'ros2_ws/src/prism_ros_driver/config/recording_qos.yaml'
 class RecordingQosTest(unittest.TestCase):
     def test_all_topics_and_bounded_policies(self):
         expected = {
+            '/prism/imu0/batch': 256,
+            '/prism/imu1/batch': 256,
+            '/prism/lidar/imu/batch': 256,
             '/prism/imu0/data': 2048,
             '/prism/imu1/data': 2048,
             '/prism/lidar/imu': 2048,
@@ -42,7 +45,7 @@ class RecordingQosTest(unittest.TestCase):
                 self.assertNotIn(key, parsed[current])
                 parsed[current][key] = value.strip()
         self.assertEqual(set(parsed), set(expected))
-        self.assertEqual(len(parsed), 21)
+        self.assertEqual(len(parsed), 24)
         for topic, depth in expected.items():
             self.assertEqual(parsed[topic], {
                 'history': 'keep_last', 'depth': str(depth),
@@ -65,7 +68,7 @@ class RecordingQosTest(unittest.TestCase):
             self.assertIn('--max-cache-size 134217728', command)
             subprocess.run(['bash', '-n'], input=command, text=True, check=True)
         self.assertTrue(any('--start-paused' in command for command in commands))
-        self.assertTrue(any('/prism/lidar/points /prism/imu0/data' in command for command in commands))
+        self.assertTrue(any('/prism/lidar/points /prism/imu0/batch' in command for command in commands))
 
 
 if __name__ == '__main__':

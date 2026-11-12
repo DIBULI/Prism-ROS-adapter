@@ -1,7 +1,7 @@
 // Passive ROS subscriber: no SDK connection, control writes or disk recording.
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/compressed_image.hpp>
-#include <sensor_msgs/msg/imu.hpp>
+#include <prism_ros_msgs/msg/batch_imu_message.hpp>
 #include <diagnostic_msgs/msg/diagnostic_array.hpp>
 #include <array>
 #include <chrono>
@@ -27,15 +27,15 @@ int main(int argc, char** argv) {
         [&, i](sensor_msgs::msg::CompressedImage::ConstSharedPtr) { ++cameras[i]; }));
   }
   for (size_t i = 0; i < imus.size(); ++i) {
-    subscriptions.push_back(node->create_subscription<sensor_msgs::msg::Imu>(
-        "/prism/imu" + std::to_string(i) + "/data",
-        rclcpp::SensorDataQoS().keep_last(4096),
-        [&, i](sensor_msgs::msg::Imu::ConstSharedPtr value) {
-          const uint64_t stamp = uint64_t(value->header.stamp.sec) * 1000000000ull +
-                                 value->header.stamp.nanosec;
+    subscriptions.push_back(node->create_subscription<prism_ros_msgs::msg::BatchIMUMessage>(
+        "/prism/imu" + std::to_string(i) + "/batch",
+        rclcpp::QoS(256).reliable(),
+        [&, i](prism_ros_msgs::msg::BatchIMUMessage::ConstSharedPtr value) {
+          for (const uint64_t stamp : value->timestamp_ns) {
           if (last_imu_ns[i] && stamp > last_imu_ns[i] + 2000000ull) ++imu_gaps[i];
           last_imu_ns[i] = stamp;
           ++imus[i];
+          }
         }));
   }
   subscriptions.push_back(node->create_subscription<diagnostic_msgs::msg::DiagnosticArray>(

@@ -17,7 +17,7 @@ import rclpy
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import CompressedImage, Imu
 from diagnostic_msgs.msg import DiagnosticArray
-from prism_ros_msgs.msg import CameraFrameMetadata
+from prism_ros_msgs.msg import CameraFrameMetadata, BatchIMUMessage
 from prism_ros_msgs.srv import ControlStreams
 from verify_rklocal_ros2 import MockAgent
 
@@ -25,7 +25,7 @@ from verify_rklocal_ros2 import MockAgent
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('binary')
-    cases = ('missing-token', 'bad-token', 'serial-mismatch', 'stream')
+    cases = ('missing-token', 'bad-token', 'serial-mismatch', 'stream', 'legacy')
     parser.add_argument('--case', choices=cases)
     args = parser.parse_args()
     assert pathlib.Path(args.binary).is_file()
@@ -60,7 +60,27 @@ def main():
     for index in range(4):
         subs.append(node.create_subscription(CompressedImage, f'/prism/camera{index}/image/compressed',
                     lambda msg, index=index: camera(index, msg), qos))
-    subs.append(node.create_subscription(Imu, '/prism/imu0/data', lambda _: counts.update(['imu']), qos))
+    batch_values, legacy_values = {}, {}
+    def batch(msg):
+        n = len(msg.timestamp_ns)
+        assert 0 < n <= 16 and msg.header.frame_id == 'prism_imu_0'
+        assert msg.header.stamp.sec * 10**9 + msg.header.stamp.nanosec == msg.timestamp_ns[0]
+        fields = [getattr(msg, f) for f in ('acceleration_x', 'acceleration_y', 'acceleration_z',
+                  'angular_velocity_x', 'angular_velocity_y', 'angular_velocity_z')]
+        assert all(len(f) == n for f in fields)
+        for i, stamp in enumerate(msg.timestamp_ns):
+            assert stamp not in batch_values, 'duplicate batch sample'
+            batch_values[stamp] = tuple(f[i] for f in fields)
+        counts['imu'] += n
+        counts['batches'] += 1
+    def legacy(msg):
+        stamp = msg.header.stamp.sec * 10**9 + msg.header.stamp.nanosec
+        assert stamp not in legacy_values, 'duplicate legacy sample'
+        a, g = msg.linear_acceleration, msg.angular_velocity
+        legacy_values[stamp] = (a.x,a.y,a.z,g.x,g.y,g.z)
+    subs.append(node.create_subscription(BatchIMUMessage, '/prism/imu0/batch', batch, qos))
+    if args.case == 'legacy':
+        subs.append(node.create_subscription(Imu, '/prism/imu0/data', legacy, qos))
     subs.append(node.create_subscription(CameraFrameMetadata, '/prism/camera/metadata',
                 lambda _: counts.update(['meta']), qos))
 
@@ -83,18 +103,22 @@ def main():
                    '-p', 'device_serial:=' + ('NOT-MOCK' if case == 'serial-mismatch' else 'MOCK'),
                    '-p', 'navigation_enabled:=true', '-p', 'gnss_raw_enabled:=true',
                    '-p', 'camera_fps:=30', '-p', 'reliable_sensor_qos:=true']
+        if case == 'legacy': command += ['-p', 'publish_legacy_imu:=true']
         client = node.create_client(ControlStreams, '/prism/streams/control')
-        if case == 'stream':
+        if case in ('stream', 'legacy'):
             command += ['-p', 'camera_enabled:=false', '-p', 'board_imu_enabled:=false']
         with tempfile.TemporaryFile(mode='w+') as log:
             process = subprocess.Popen(command, env=env, stdout=log, stderr=subprocess.STDOUT)
             try:
-                if case == 'stream':
+                if case in ('stream', 'legacy'):
                     # Match the test endpoints before sending START, not after
                     # filling the stream queues. Keep spinning while discovering
                     # the service so the observer does not block its callbacks.
                     spin_until(lambda: ready and client.service_is_ready() and
                                all(node.count_publishers(sub.topic_name) == 1 for sub in subs))
+                    if case == 'stream':
+                        assert node.count_publishers('/prism/imu0/data') == 0
+                        assert node.count_publishers('/prism/lidar/imu') == 0
                     assert mock.commands[6] == mock.commands[8] == 0
                     start = ControlStreams.Request()
                     start.command, start.camera, start.board_imu = 'start', True, True
@@ -112,6 +136,10 @@ def main():
                     assert mock.commands[6] == 1 and mock.commands[8] == 1
                     assert mock.commands[7] == 0 and mock.commands[9] == 1  # aggregate STOP
                     assert mock.acks and all(v == 1 for v in mock.acks.values())
+                    if case == 'legacy':
+                        spin_until(lambda: batch_values == legacy_values)
+                        assert len(batch_values) >= 480
+                    assert counts['batches'] < counts['imu']
                 else:
                     # A ROS node may remain alive to expose the failure diagnostics.
                     deadline = time.monotonic() + 3
@@ -135,9 +163,9 @@ def main():
                 text = log.read()
                 assert password not in text, 'password leaked into log'
                 expected = {'missing-token': 'missing or empty', 'bad-token': 'authentication rejected',
-                            'serial-mismatch': 'serial does not match', 'stream': 'Network camera FPS ceiling: 10'}[case]
+                            'serial-mismatch': 'serial does not match', 'stream': 'Network camera FPS ceiling: 10', 'legacy': 'Network camera FPS ceiling: 10'}[case]
                 assert expected in text, (case, text[-3000:])
-                if case == 'stream':
+                if case in ('stream', 'legacy'):
                     assert 'DDS delivery unconfirmed' not in text and 'DDS acknowledgment failed' not in text, text[-3000:]
                     assert not any('stream=camera' in line and 'timestamp_gap' in line for line in text.splitlines()), 'camera health uses requested30 instead of negotiated10'
                 assert 'Opening USB' not in text, 'network failure fell back to USB'

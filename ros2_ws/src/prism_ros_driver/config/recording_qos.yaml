@@ -1,3 +1,18 @@
+/prism/imu0/batch:
+  history: keep_last
+  depth: 256
+  reliability: reliable
+  durability: volatile
+/prism/imu1/batch:
+  history: keep_last
+  depth: 256
+  reliability: reliable
+  durability: volatile
+/prism/lidar/imu/batch:
+  history: keep_last
+  depth: 256
+  reliability: reliable
+  durability: volatile
 # Native rosbag2 recorder subscription QoS; not driver publisher settings.
 # Requires Reliable publishers and the default /prism topic prefix.
 # Copy and edit exact topic names/policies for a different configuration.

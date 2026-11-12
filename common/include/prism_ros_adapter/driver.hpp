@@ -45,6 +45,8 @@ struct DriverConfig {
   uint32_t camera_fps = 0;
   uint32_t imu_sensor_count = 0;
   uint32_t imu_rate_hz = 0;
+  int64_t imu_batch_size = 16;
+  int64_t imu_batch_max_delay_ms = 20;
   LidarModel lidar_model = LidarModel::Mid360;
   bool lidar_network_apply_on_start = false;
   bool lidar_network_enabled = true;
@@ -288,8 +290,10 @@ struct DriverCallbacks {
   std::function<void(const RtcmData&)> rover_rtcm;
   std::function<void(const CameraFrameSet&)> camera;
   std::function<void(const BoardImuSample&)> board_imu;
+  std::function<void(const std::vector<BoardImuSample>&)> board_imu_batch;
   std::function<void(const LidarPointBatch&)> lidar_points;
   std::function<void(const LidarImuSample&)> lidar_imu;
+  std::function<void(const std::vector<LidarImuSample>&)> lidar_imu_batch;
   std::function<void(const DriverStatus&)> status;
   std::function<void(LogLevel, const std::string&)> log;
 };

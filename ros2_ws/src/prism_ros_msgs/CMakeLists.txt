@@ -35,6 +35,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/GetGnssTiming.srv"
   "srv/GetTimeSyncPort.srv"
   "srv/SetRoverRtcm.srv"
+  "msg/BatchIMUMessage.msg"
   "msg/CameraFrameMetadata.msg"
   "msg/DeviceConfiguration.msg"
   "msg/DeviceInfo.msg"

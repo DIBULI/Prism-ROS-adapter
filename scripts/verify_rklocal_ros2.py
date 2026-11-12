@@ -19,7 +19,8 @@ import time
 
 import rclpy
 from rclpy.qos import qos_profile_sensor_data
-from sensor_msgs.msg import CompressedImage, Imu
+from sensor_msgs.msg import CompressedImage
+from prism_ros_msgs.msg import BatchIMUMessage
 from prism_ros_msgs.msg import CameraFrameMetadata, GnssTimingStatus, TimeSyncRtkStatus
 from prism_ros_msgs.srv import (
     ControlStreams, SyncSystemTime, ControlRtk, SetCorsConfiguration,
@@ -252,7 +253,7 @@ def main():
             CompressedImage, f"/prism/camera{camera}/image/compressed",
             lambda msg, camera=camera: camera_received(camera, msg), 10))
     for kind, topic, name, qos in (
-        (Imu, "/prism/imu0/data", "imu0", qos_profile_sensor_data),
+        (BatchIMUMessage, "/prism/imu0/batch", "imu0", qos_profile_sensor_data),
         (GnssTimingStatus, "/prism/gnss/timing", "gnss", 10),
         (TimeSyncRtkStatus, "/prism/rtk/status", "rtk", 10),
     ):

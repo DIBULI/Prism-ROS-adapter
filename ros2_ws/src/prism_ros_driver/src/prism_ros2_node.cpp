@@ -1,3 +1,5 @@
+#include <prism_ros_msgs/msg/batch_imu_message.hpp>
+#include "prism_ros_adapter/imu_batch.hpp"
 #if __has_include(<ament_index_cpp/get_package_share_path.hpp>)
 #include <ament_index_cpp/get_package_share_path.hpp>
 #else
@@ -280,6 +282,9 @@ class PrismRos2Node : public rclcpp::Node {
         0, declare_parameter<int64_t>("imu_sensor_count", 0)));
     config.imu_rate_hz = static_cast<uint32_t>(std::max<int64_t>(
         0, declare_parameter<int64_t>("imu_rate_hz", 0)));
+    const bool publish_legacy_imu = declare_parameter<bool>("publish_legacy_imu", false);
+    config.imu_batch_size = declare_parameter<int64_t>("imu_batch_size", 16);
+    config.imu_batch_max_delay_ms = declare_parameter<int64_t>("imu_batch_max_delay_ms", 20);
     config.require_synchronized_timestamps =
         declare_parameter<bool>("require_synchronized_timestamps", true);
     const std::string lidar_model =
@@ -346,14 +351,18 @@ class PrismRos2Node : public rclcpp::Node {
             topic(topic_prefix_, "camera/metadata"),
             sensor_qos(8));
     for (size_t i = 0; i < board_imu_publishers_.size(); ++i) {
-      board_imu_publishers_[i] = create_publisher<sensor_msgs::msg::Imu>(
+      board_imu_batch_publishers_[i] = create_publisher<prism_ros_msgs::msg::BatchIMUMessage>(
+          topic(topic_prefix_, "imu" + std::to_string(i) + "/batch"), sensor_qos(128));
+      if (publish_legacy_imu) board_imu_publishers_[i] = create_publisher<sensor_msgs::msg::Imu>(
           topic(topic_prefix_, "imu" + std::to_string(i) + "/data"),
           sensor_qos(512));
     }
     lidar_publisher_ = create_publisher<sensor_msgs::msg::PointCloud2>(
         topic(topic_prefix_, "lidar/points"),
         sensor_qos(4));
-    lidar_imu_publisher_ = create_publisher<sensor_msgs::msg::Imu>(
+    lidar_imu_batch_publisher_ = create_publisher<prism_ros_msgs::msg::BatchIMUMessage>(
+        topic(topic_prefix_, "lidar/imu/batch"), sensor_qos(128));
+    if (publish_legacy_imu) lidar_imu_publisher_ = create_publisher<sensor_msgs::msg::Imu>(
         topic(topic_prefix_, "lidar/imu"),
         sensor_qos(256));
     diagnostics_publisher_ =
@@ -388,10 +397,12 @@ class PrismRos2Node : public rclcpp::Node {
       if(value.channel==0||value.channel==2) cors_raw_publisher_->publish(message);
     };
     callbacks.camera = [this](const auto& value) { publishCamera(value); };
-    callbacks.board_imu = [this](const auto& value) { publishBoardImu(value); };
+    callbacks.board_imu_batch = [this](const auto& values) { publishBoardImuBatch(values); };
+    if (publish_legacy_imu) callbacks.board_imu = [this](const auto& value) { publishBoardImu(value); };
     callbacks.lidar_points =
         [this](const auto& value) { publishLidar(value); };
-    callbacks.lidar_imu =
+    callbacks.lidar_imu_batch = [this](const auto& values) { publishLidarImuBatch(values); };
+    if (publish_legacy_imu) callbacks.lidar_imu =
         [this](const auto& value) { publishLidarImu(value); };
     callbacks.status = [this](const auto& value) { publishStatus(value); };
     callbacks.log = [this](prism_ros_adapter::LogLevel level,
@@ -1006,6 +1017,29 @@ class PrismRos2Node : public rclcpp::Node {
     camera_metadata_publisher_->publish(metadata);
   }
 
+  void publishBoardImuBatch(const std::vector<prism_ros_adapter::BoardImuSample>& samples) {
+    for (size_t id = 0; id < board_imu_batch_publishers_.size(); ++id) {
+      prism_ros_msgs::msg::BatchIMUMessage message;
+      for (const auto& sample : samples)
+        if (sample.sensor_id == id) prism_ros_adapter::appendImuSample(message, sample);
+      if (message.timestamp_ns.empty()) continue;
+      message.header.stamp = rosTime(message.timestamp_ns.front());
+      message.header.frame_id = board_imu_frame_prefix_ + std::to_string(id);
+      board_imu_batch_publishers_[id]->publish(message);
+      acknowledgePublication(board_imu_batch_publishers_[id], board_imu_batch_ack_[id], reliable_sensor_qos_);
+    }
+  }
+
+  void publishLidarImuBatch(const std::vector<prism_ros_adapter::LidarImuSample>& samples) {
+    if (samples.empty()) return;
+    prism_ros_msgs::msg::BatchIMUMessage message;
+    for (const auto& sample : samples) prism_ros_adapter::appendImuSample(message, sample);
+    message.header.stamp = rosTime(message.timestamp_ns.front());
+    message.header.frame_id = lidar_imu_frame_;
+    lidar_imu_batch_publisher_->publish(message);
+    acknowledgePublication(lidar_imu_batch_publisher_, lidar_imu_batch_ack_, reliable_sensor_qos_);
+  }
+
   void publishBoardImu(const prism_ros_adapter::BoardImuSample& sample) {
     if (sample.sensor_id >= board_imu_publishers_.size()) return;
     sensor_msgs::msg::Imu message;
@@ -1147,6 +1181,10 @@ class PrismRos2Node : public rclcpp::Node {
     diagnostics_publisher_->publish(array);
   }
 
+  std::array<rclcpp::Publisher<prism_ros_msgs::msg::BatchIMUMessage>::SharedPtr, 2> board_imu_batch_publishers_;
+  rclcpp::Publisher<prism_ros_msgs::msg::BatchIMUMessage>::SharedPtr lidar_imu_batch_publisher_;
+  std::array<prism_ros_adapter::PublicationAckWindow, 2> board_imu_batch_ack_;
+  prism_ros_adapter::PublicationAckWindow lidar_imu_batch_ack_;
   std::string topic_prefix_;
   static constexpr bool dds_ack_supported_ =
       prism_ros_adapter::HasPublicationAckWait<rclcpp::Publisher<sensor_msgs::msg::Imu>>::value &&

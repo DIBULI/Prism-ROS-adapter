@@ -151,9 +151,11 @@ for ROS 2, insert `/msg/` between the package and message name.
 | --- | --- | --- |
 | `/prism/camera0/image/compressed` ... `/prism/camera3/image/compressed` | `sensor_msgs/CompressedImage` | Four original MJPEG images; no decode/re-encode |
 | `/prism/camera/metadata` | `prism_ros_msgs/CameraFrameMetadata` | Shared trigger timestamp, frame IDs, exposure and gains for all cameras |
-| `/prism/imu0/data`, `/prism/imu1/data` | `sensor_msgs/Imu` | Board IMUs in m/s² and rad/s; only detected IMUs publish data |
+| `/prism/imu0/batch`, `/prism/imu1/batch` | `prism_ros_msgs/BatchIMUMessage` | Board IMU samples in m/s² and rad/s; one sensor per message |
+| `/prism/imu0/data`, `/prism/imu1/data` | `sensor_msgs/Imu` | Optional legacy topics (`publish_legacy_imu: true`) |
 | `/prism/lidar/points` | `sensor_msgs/PointCloud2` | Mid-360/Mid-360S/XT32 100 ms clouds with original channel and point-time information |
-| `/prism/lidar/imu` | `sensor_msgs/Imu` | LiDAR-integrated IMU in m/s² and rad/s |
+| `/prism/lidar/imu/batch` | `prism_ros_msgs/BatchIMUMessage` | LiDAR-integrated IMU samples |
+| `/prism/lidar/imu` | `sensor_msgs/Imu` | Optional legacy LiDAR IMU (`publish_legacy_imu: true`) |
 | `/prism/gnss/timing` | `prism_ros_msgs/GnssTimingStatus` | External synchronization, PPS presence/validity/width, first-RMC delay, NMEA age and basic fix |
 | `/prism/gnss/reception` | `prism_ros_msgs/GnssReceptionStatus` | GNSS UART/NMEA freshness, accepted/rejected counts, UART errors and FIFO overflow |
 | `/prism/gnss/observations` | `prism_ros_msgs/GnssObservations` | Original receiver text sentences (including available RMC/GGA/GST/GSV/GSA/ADRNAV), with cursor, session and gap information |
@@ -186,7 +188,7 @@ are unchanged. Reliable delivery reduces transport loss but cannot guarantee
 lossless recording when consumers or storage cannot keep up.
 
 Camera and board-IMU publication workers use bounded DDS ACK windows (one image
-per lane / 64 IMU samples, at most 100 ms per check). This does not run on the SDK
+per lane / one IMU batch / 64 optional legacy IMU samples, at most 100 ms per check). This does not run on the SDK
 receive thread, change acquisition rate or retimestamp samples. Timeout/error
 counts are exposed as `dds_ack_timeouts` and warnings; other lanes are still
 published. Best-effort IMU and streams without subscribers do not wait. Older
@@ -287,7 +289,8 @@ covers **all 21 published sensor/diagnostic topics** with
 
 | Recorded topics | Depth per topic (messages) |
 | --- | ---: |
-| Board IMUs `/prism/imu0/data`, `/prism/imu1/data`; LiDAR IMU `/prism/lidar/imu` | 2048 |
+| IMU batches `/prism/imu0/batch`, `/prism/imu1/batch`, `/prism/lidar/imu/batch` | 256 batches |
+| Optional legacy board IMUs `/prism/imu0/data`, `/prism/imu1/data`; LiDAR IMU `/prism/lidar/imu` | 2048 |
 | Four camera `image/compressed` topics; `/prism/lidar/points` | 64 |
 | Camera metadata; all GNSS/RTK data and status topics; `/diagnostics` | 256 |
 
@@ -309,7 +312,7 @@ ros2 bag record -a -o ./capture_bag \
 To record only LiDAR points and board IMU0 (using the same preset):
 
 ```bash
-ros2 bag record /prism/lidar/points /prism/imu0/data -o ./lidar_imu0_bag \
+ros2 bag record /prism/lidar/points /prism/imu0/batch -o ./lidar_imu0_bag \
   --qos-profile-overrides-path "$(ros2 pkg prefix --share prism_ros_driver)/config/recording_qos.yaml" \
   --max-cache-size 134217728
 ```
@@ -904,3 +907,26 @@ These tests do not connect hardware or start CORS.
 
 Historical validation records under `docs/testing/` describe their original
 versions only; they are not current interface documentation.
+
+### Compact IMU batches
+
+ROS1 and ROS2 publish `prism_ros_msgs/BatchIMUMessage` by default. Its seven
+parallel arrays contain `timestamp_ns` (uint64) and six float64 SI components:
+`acceleration_x/y/z` (m/s²), `angular_velocity_x/y/z` (rad/s). All arrays have the
+same nonzero length. `header.stamp` is the first sample time and `header.frame_id`
+identifies the sensor. Every sample keeps its original timestamp and precision;
+there is no averaging, resampling, orientation, covariance or temperature field.
+Existing source-sequence, timestamp and dispatch-loss diagnostics remain active.
+
+`imu_batch_size` defaults to 16 (range 1–256); `imu_batch_max_delay_ms` defaults to
+20 (range 1–100). These bound aggregation, not end-to-end middleware latency.
+Board IMUs share a dispatch worker but publish on separate sensor topics; a batch
+can be smaller when both sensors are present. Sparse streams and STOP flush
+partial batches. Restart drains the previous acquisition before starting another.
+
+Legacy `sensor_msgs/Imu` publishers are **not created by default**. Enable them
+alongside batch topics with `publish_legacy_imu: true` in the YAML, ROS1
+`_publish_legacy_imu:=true`, or ROS2 `--ros-args -p publish_legacy_imu:=true`.
+The legacy samples keep the same timestamps/values and share batching latency.
+For new rosbag recordings, subscribe to `/prism/imu0/batch` (and the other batch
+topics as needed); legacy consumers must opt in explicitly.

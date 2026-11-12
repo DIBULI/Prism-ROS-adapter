@@ -309,14 +309,23 @@ template <typename T>
 class DispatchQueue {
  public:
   using Handler = std::function<void(const T&)>;
+  using BatchHandler = std::function<void(const std::vector<T>&)>;
 
   DispatchQueue(size_t capacity, Handler handler, bool preserve = false)
       : capacity_(capacity), handler_(std::move(handler)), preserve_(preserve) {}
 
+  DispatchQueue(size_t capacity, BatchHandler handler, int64_t batch_size,
+                int64_t max_delay_ms)
+      : capacity_(capacity), batch_handler_(std::move(handler)), preserve_(false),
+        batch_size_(static_cast<size_t>(batch_size)), max_delay_(max_delay_ms) {
+    if (batch_size < 1 || batch_size > 256 || max_delay_ms < 1 || max_delay_ms > 100)
+      throw std::invalid_argument("IMU batch size must be 1..256 and delay 1..100 ms");
+  }
+
   ~DispatchQueue() { stop(); }
 
   void start() {
-    if (!handler_ || running_.exchange(true)) return;
+    if ((!handler_ && !batch_handler_) || running_.exchange(true)) return;
     drain_deadline_.reset();
     worker_ = std::thread([this]() { workerMain(); });
   }
@@ -331,6 +340,7 @@ class DispatchQueue {
   void beginDrain(std::chrono::steady_clock::time_point deadline) {
     std::lock_guard<std::mutex> lock(mutex_);
     drain_deadline_ = deadline;
+    cv_.notify_all();
   }
   void endDrain() {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -343,7 +353,7 @@ class DispatchQueue {
   }
 
   void push(T value) {
-    if (!handler_ || !running_.load()) return;
+    if ((!handler_ && !batch_handler_) || !running_.load()) return;
     {
       std::unique_lock<std::mutex> lock(mutex_);
       // Once the producer is stopped, wait for bounded consumer capacity,
@@ -375,20 +385,36 @@ class DispatchQueue {
   void workerMain() {
     while (true) {
       T value;
+      std::vector<T> values;
       {
         std::unique_lock<std::mutex> lock(mutex_);
         cv_.wait(lock, [this]() {
           return !running_.load() || !queue_.empty();
         });
         if (!running_.load() && queue_.empty()) break;
-        value = std::move(queue_.front());
-        queue_.pop_front();
+        if (batch_handler_ && queue_.size() < batch_size_ && !drain_deadline_) {
+          cv_.wait_for(lock, max_delay_, [this] {
+            return !running_.load() || drain_deadline_ || queue_.size() >= batch_size_;
+          });
+        }
+        if (batch_handler_) {
+          const size_t count = std::min(queue_.size(), batch_size_);
+          values.reserve(count);
+          for (size_t i = 0; i < count; ++i) {
+            values.push_back(std::move(queue_.front()));
+            queue_.pop_front();
+          }
+        } else {
+          value = std::move(queue_.front());
+          queue_.pop_front();
+        }
         depth_.store(queue_.size());
         in_callback_ = true;
       }
       space_.notify_one();
       try {
-        handler_(value);
+        if (batch_handler_) batch_handler_(values);
+        else handler_(value);
       } catch (...) {
         // A ROS subscriber or middleware failure must never stall USB reads.
         callback_errors_.fetch_add(1);
@@ -403,7 +429,10 @@ class DispatchQueue {
 
   size_t capacity_;
   Handler handler_;
+  BatchHandler batch_handler_;
   const bool preserve_;
+  size_t batch_size_ = 1;
+  std::chrono::milliseconds max_delay_{0};
   std::atomic<bool> running_{false};
   std::atomic<uint64_t> dropped_{0};
   std::atomic<uint64_t> callback_errors_{0};
@@ -453,9 +482,15 @@ struct Driver::Impl {
         // A network query can release several complete sets in one burst.
         // Eight sets are bounded; drop/error warnings and depth/peak remain visible.
         camera_dispatch(8, callbacks.camera),
-        board_imu_dispatch(8192, callbacks.board_imu),
+        board_imu_dispatch(8192, [this](const std::vector<BoardImuSample>& values) {
+          if (callbacks.board_imu_batch) callbacks.board_imu_batch(values);
+          if (callbacks.board_imu) for (const auto& value : values) callbacks.board_imu(value);
+        }, config.imu_batch_size, config.imu_batch_max_delay_ms),
         lidar_dispatch(16, callbacks.lidar_points),
-        lidar_imu_dispatch(2048, callbacks.lidar_imu) {
+        lidar_imu_dispatch(2048, [this](const std::vector<LidarImuSample>& values) {
+          if (callbacks.lidar_imu_batch) callbacks.lidar_imu_batch(values);
+          if (callbacks.lidar_imu) for (const auto& value : values) callbacks.lidar_imu(value);
+        }, config.imu_batch_size, config.imu_batch_max_delay_ms) {
 #ifdef PRISM_ROS_RKLOCAL
     validateConnectionConfig(config, true);
 #else
