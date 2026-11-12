@@ -287,7 +287,6 @@ struct DriverCallbacks {
   std::function<void(const TimeSyncRtkStatusState&)> rtk_module;
   std::function<void(const RtcmData&)> rover_rtcm;
   std::function<void(const CameraFrameSet&)> camera;
-  std::function<void(const struct ProfileCameraImage&)> profile_camera;
   std::function<void(const BoardImuSample&)> board_imu;
   std::function<void(const LidarPointBatch&)> lidar_points;
   std::function<void(const LidarImuSample&)> lidar_imu;

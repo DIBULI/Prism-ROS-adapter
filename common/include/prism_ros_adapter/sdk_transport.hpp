@@ -15,8 +15,7 @@ using Client = prism::Client;
 inline constexpr const char* kTransport = "usb";
 #endif
 
-// RK-local assembles and ACKs legacy JPEG sets only. Independent profiles
-// bypass that C assembler and require the separate helper below.
+// RK-local already assembles and ACKs the supported 413GSV0 JPEG sets.
 inline void acknowledgeVideo(Client& client, uint32_t frame_id) {
 #ifdef PRISM_ROS_RKLOCAL
   (void)client;
@@ -24,10 +23,6 @@ inline void acknowledgeVideo(Client& client, uint32_t frame_id) {
 #else
   client.sendVideoAck(frame_id);
 #endif
-}
-
-inline void acknowledgeProfileVideo(Client& client, uint32_t transfer_id) {
-  client.sendVideoAck(transfer_id);
 }
 
 #ifdef PRISM_ROS_RKLOCAL

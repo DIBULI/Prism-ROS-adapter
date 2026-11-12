@@ -10,7 +10,7 @@
 #include "prism_ros_adapter/lidar_conversion.hpp"
 #include "prism_ros_adapter/lidar_speed_control.hpp"
 #include "prism_ros_adapter/sensor_data_health.hpp"
-#include "prism_ros_adapter/profile_camera.hpp"
+#include "prism_ros_adapter/supported_device.hpp"
 
 #include <algorithm>
 #include <array>
@@ -453,9 +453,6 @@ struct Driver::Impl {
         // A network query can release several complete sets in one burst.
         // Eight sets are bounded; drop/error warnings and depth/peak remain visible.
         camera_dispatch(8, callbacks.camera),
-        // At most four 25MiB encoded originals queued + one in-flight decode.
-        // Full decode/CRC runs off the USB/control thread. No CPU encoding.
-        profile_dispatch(4, [this](const auto& image) { publishProfileCamera(image); }, true),
         board_imu_dispatch(8192, callbacks.board_imu),
         lidar_dispatch(16, callbacks.lidar_points),
         lidar_imu_dispatch(2048, callbacks.lidar_imu) {
@@ -588,7 +585,7 @@ struct Driver::Impl {
                      (camera_mask & (1u << i)) ? 5 * SensorDataHealth::kSecond : 0);
       }
       health.reset(HealthStream::CameraMetadata, steadyNowNs(), fps,
-                   profile_camera ? 0 : 5 * SensorDataHealth::kSecond);
+                   5 * SensorDataHealth::kSecond);
     }
 
     if (config.enable_board_imu && !context.imu_started) {
@@ -632,22 +629,8 @@ struct Driver::Impl {
   }
 
   prism::VideoStatus startCamera(sdk::Client& client) {
-    profile_assembler.reset();
-    ++profile_epoch;
-    profile_camera = device_model == prism::DeviceModel::Prism415RSV0 ||
-                     device_model == prism::DeviceModel::Prism21315V0;
-    if (!profile_camera) {
-      if (device_model != prism::DeviceModel::Prism413GSV0 &&
-          device_model != prism::DeviceModel::Unknown)
-        throw std::runtime_error("supported product identity required before camera START");
-      return client.startVideo1280x1024(config.camera_fps);
-    }
-    if (!callbacks.profile_camera) throw std::runtime_error("profile image callback required");
-    if (config.require_synchronized_timestamps)
-      log(LogLevel::Warning, "profile frames have no attested UTC: metadata continues, image publication requires require_synchronized_timestamps=false");
-    if (device_model == prism::DeviceModel::Prism415RSV0)
-      return client.startPrism415rsv0Video(config.camera_fps ? config.camera_fps : 2);
-    return client.startProfileVideoGpu(config.camera_fps);
+    requireSupportedDevice(device_model);
+    return client.startVideo1280x1024(config.camera_fps);
   }
 
   void configureLidarNetworkOnStart(sdk::Client& client) {
@@ -964,9 +947,6 @@ struct Driver::Impl {
 
   void reportHealth(bool final = false) {
     checkDispatch(HealthStream::CameraMetadata, camera_dispatch);
-    health.counter(HealthStream::Transport, HealthIssue::CallbackError, profile_dispatch.callbackErrors(), true);
-    for (size_t i=0;i<4;++i)
-      health.counter(static_cast<HealthStream>(i), HealthIssue::CrcError, profile_decode_errors[i].load(), true);
     checkDispatch(HealthStream::BoardImuDispatch, board_imu_dispatch);
     checkDispatch(HealthStream::LidarPoints, lidar_dispatch);
     checkDispatch(HealthStream::LidarImu, lidar_imu_dispatch);
@@ -1088,7 +1068,6 @@ struct Driver::Impl {
     rtk_module_dispatch.start();
     rover_dispatch.start();
     camera_dispatch.start();
-    profile_dispatch.start();
     board_imu_dispatch.start();
     lidar_dispatch.start();
     lidar_imu_dispatch.start();
@@ -1106,11 +1085,10 @@ struct Driver::Impl {
     lidar_dispatch.stop();
     board_imu_dispatch.stop();
     camera_dispatch.stop();
-    profile_dispatch.stop();
   }
 
   void waitDispatcherDrain(std::chrono::steady_clock::time_point deadline) {
-    profile_dispatch.waitUntilIdle(deadline); camera_dispatch.waitUntilIdle(deadline);
+    camera_dispatch.waitUntilIdle(deadline);
     board_imu_dispatch.waitUntilIdle(deadline); lidar_dispatch.waitUntilIdle(deadline);
     lidar_imu_dispatch.waitUntilIdle(deadline); rover_dispatch.waitUntilIdle(deadline);
     raw_dispatch.waitUntilIdle(deadline); observations_dispatch.waitUntilIdle(deadline);
@@ -1119,7 +1097,7 @@ struct Driver::Impl {
   }
 
   void endDispatcherDrain() {
-    profile_dispatch.endDrain(); camera_dispatch.endDrain(); board_imu_dispatch.endDrain();
+    camera_dispatch.endDrain(); board_imu_dispatch.endDrain();
     lidar_dispatch.endDrain(); lidar_imu_dispatch.endDrain(); rover_dispatch.endDrain();
   }
 
@@ -1288,88 +1266,10 @@ struct Driver::Impl {
     }
   }
   void handleVideoChunk(sdk::Client& client, const prism::VideoChunkView& chunk) {
-    if (profile_camera) {
-      consumeProfileResult(client, chunk.camera_id, profile_assembler.ingest(chunk, steadyNowNs()));
-      return;
-    }
     consumeCameraResult(client, camera_assembler.ingest(chunk));
   }
 
-  void publishProfileCamera(const ProfileCameraJob& job) {
-    const auto& image = job.image;
-    ProfileCameraImage decoded;
-    try { decoded = decodeProfileCamera(image); }
-    catch (const std::exception& e) {
-      profile_decode_errors.at(image.camera).fetch_add(1);
-      log(LogLevel::Warning, "profile camera " + std::to_string(image.camera) +
-          " transfer " + std::to_string(image.frame_id) + " rejected: " + e.what());
-      return; // Corrupt originals are reported; healthy lanes keep publishing.
-    }
-    decoded.image_published = !config.require_synchronized_timestamps;
-    decoded.acquisition_epoch = job.epoch;
-    if (!decoded.image_published) { decoded.data.clear(); dropped_unsynchronized.fetch_add(1); }
-    if (callbacks.profile_camera) callbacks.profile_camera(decoded);
-  }
-
-  void consumeProfileResult(sdk::Client& client, uint8_t camera, ProfileCameraAssembler::Result result) {
-    if (!draining_tail) for (auto id : result.retired) sdk::acknowledgeProfileVideo(client, id);
-    if (draining_tail && (result.incomplete || !result.error.empty())) tail_incomplete = true;
-    if (camera >= 4) { health.add(HealthStream::Transport, HealthIssue::Rejected); return; }
-    const auto stream = static_cast<HealthStream>(camera);
-    for (unsigned i=0;i<result.incomplete;++i) health.add(stream, HealthIssue::Incomplete);
-    if (!result.error.empty()) { health.add(stream, HealthIssue::Rejected); log(LogLevel::Warning, result.error); }
-    if (!result.image || !config.enable_camera) return;
-    const auto& image = *result.image;
-    if (image.format == prism::capture::kRaw8Rice) {
-      try {
-        const auto h = prism::capture::parseRaw8Header(image.encoded.data(), image.encoded.size(), image.encoded.size());
-        if (h.camera != camera || h.timestamp_us != image.timestamp_us)
-          throw std::runtime_error("profile header/envelope mismatch");
-        // Native source sequence is per camera, NOT the global transfer ID.
-        health.observe(stream, steadyNowNs(), h.timestamp_us <= UINT64_MAX/1000u ? h.timestamp_us * 1000u : 0, h.frame_id);
-      } catch (const std::exception& e) {
-        health.add(stream, HealthIssue::Rejected); log(LogLevel::Warning, e.what());
-        if (draining_tail) tail_incomplete = true;
-        return;
-      }
-    } else if (image.format == prism::capture::kRaw12Rice ||
-               image.format == prism::capture::kRaw12Zstd) {
-      try {
-        const auto* p = image.encoded.data();
-        const auto h = prism::capture::parseRaw12Header(p, image.encoded.size(), image.encoded.size(), image.format);
-        const auto stamp = uint64_t(prism::capture::rawLe32(p+40)) |
-                           uint64_t(prism::capture::rawLe32(p+44)) << 32;
-        if (p[37] != camera || stamp != image.timestamp_us)
-          throw std::runtime_error("profile header/envelope mismatch");
-        health.observe(stream, steadyNowNs(), stamp <= UINT64_MAX/1000u ? stamp*1000u : 0,
-                       prism::capture::rawLe32(p+24), 32, false, h.source_frame_step);
-      } catch (const std::exception& e) {
-        health.add(stream, HealthIssue::Rejected); log(LogLevel::Warning, e.what());
-        if (draining_tail) tail_incomplete = true;
-        return;
-      }
-    } else health.touch(stream, steadyNowNs());
-    if (config.require_synchronized_timestamps) health.add(stream, HealthIssue::Unsynchronized);
-    profile_dispatch.push(ProfileCameraJob{std::move(*result.image), profile_epoch});
-  }
-
-  void handleProfileFault(const prism::Frame& frame) {
-    if (auto fault = prism::capture::parseProfileGpuFault(frame)) {
-      if (draining_tail) tail_incomplete = true;
-      health.add(static_cast<HealthStream>(fault->camera), HealthIssue::Rejected);
-      log(LogLevel::Warning, "camera " + std::to_string(fault->camera) +
-          (fault->unavailable ? " GPU unavailable; no CPU fallback" : " GPU encoding failed; no CPU fallback"));
-    }
-  }
-
-  void ensureProfilePublicationHealthy() const {
-    if (profile_dispatch.callbackErrors())
-      throw std::runtime_error("profile publication callback failed; recording integrity not confirmed");
-  }
   void ensureFinalPublicationHealthy() const {
-    ensureProfilePublicationHealthy();
-    for (const auto& errors : profile_decode_errors)
-      if (errors.load()) throw std::runtime_error("profile CRC/decode failure; recording integrity not confirmed");
     if (camera_dispatch.callbackErrors() || board_imu_dispatch.callbackErrors() ||
         lidar_dispatch.callbackErrors() || lidar_imu_dispatch.callbackErrors() ||
         rover_dispatch.callbackErrors() || raw_dispatch.callbackErrors())
@@ -1382,7 +1282,6 @@ struct Driver::Impl {
   // The stream helpers mark themselves inactive at STOP. Parsing the accepted
   // tail must depend on the configured subscriptions, not those active flags.
   void handleStreamFrame(sdk::Client& client, const prism::Frame& frame) {
-    handleProfileFault(frame);
     if (frame.type == prism::FrameType::ImuSample && config.enable_board_imu)
       dispatchBoardImu(prism::parseImuSample(frame));
     else if (frame.type == prism::FrameType::LidarPoints && config.enable_lidar)
@@ -1410,7 +1309,7 @@ struct Driver::Impl {
   void prepareStreamTail(std::chrono::steady_clock::time_point deadline) {
     if(!draining_tail)tail_incomplete=false;
     draining_tail=true;
-    profile_dispatch.beginDrain(deadline);camera_dispatch.beginDrain(deadline);
+    camera_dispatch.beginDrain(deadline);
     board_imu_dispatch.beginDrain(deadline);lidar_dispatch.beginDrain(deadline);
     lidar_imu_dispatch.beginDrain(deadline);rover_dispatch.beginDrain(deadline);
   }
@@ -1456,15 +1355,9 @@ struct Driver::Impl {
   }
 
   void finalizeStreamTail(sdk::Client& client) {
-    if (profile_camera) {
-      for (uint8_t camera=0; camera<4; ++camera)
-        consumeProfileResult(client, camera, profile_assembler.finish(camera));
-    } else {
-      // No new frames are admitted: expire the bounded one-second legacy
-      // assembly window now, retaining all complete camera slots it contains.
-      consumeCameraResult(client, camera_assembler.expire(
-          std::chrono::steady_clock::now() + std::chrono::seconds(2)));
-    }
+    // Expire the legacy assembly window while retaining complete camera slots.
+    consumeCameraResult(client, camera_assembler.expire(
+        std::chrono::steady_clock::now() + std::chrono::seconds(2)));
     for (auto& points : lidar_frame_accumulator.finish()) lidar_dispatch.push(std::move(points));
   }
   void handleVideoMeta(sdk::Client& client, const prism::VideoMeta& meta) {
@@ -1504,8 +1397,8 @@ struct Driver::Impl {
         lidar_sdk_timestamp_selected.load();
     output.dropped_unsynchronized = dropped_unsynchronized.load();
     output.dropped_camera_dispatch = camera_dispatch.dropped();
-    output.camera_dispatch_depth = camera_dispatch.depth() + profile_dispatch.depth();
-    output.camera_dispatch_peak = std::max(camera_dispatch.peak(), profile_dispatch.peak());
+    output.camera_dispatch_depth = camera_dispatch.depth();
+    output.camera_dispatch_peak = camera_dispatch.peak();
     output.dropped_lidar_dispatch = lidar_dispatch.dropped();
     output.dropped_imu_dispatch =
         board_imu_dispatch.dropped() + lidar_imu_dispatch.dropped();
@@ -1531,8 +1424,7 @@ struct Driver::Impl {
     while (!reference_ready() && std::chrono::steady_clock::now() < deadline) {
       try {
         auto frame = client.readFrame(1000);
-        handleProfileFault(frame);
-        bool handled = imu_stream != nullptr && imu_stream->handleFrame(frame);
+            bool handled = imu_stream != nullptr && imu_stream->handleFrame(frame);
         if (!handled && frame.type == prism::FrameType::VideoChunk) {
           handleVideoChunk(client, prism::parseVideoChunkView(frame));
         } else if (!handled && frame.type == prism::FrameType::VideoMeta) {
@@ -1576,6 +1468,7 @@ struct Driver::Impl {
     sensor_board_time_synced = info.sensor_board_time_synced;
     product_serial = info.product_serial;
     device_model = info.device_model;
+    requireSupportedDevice(device_model);
     detected_camera_fps = info.camera_fps;
     detected_imu_rate = info.imu_fps;
     imu_mask = info.imu_present_mask & 3u;
@@ -1675,11 +1568,7 @@ struct Driver::Impl {
          }
          if (std::chrono::steady_clock::now() >= receive_deadline) break;
         }
-        if (profile_camera) {
-          for (uint8_t camera=0;camera<4;++camera)
-            consumeProfileResult(client, camera, profile_assembler.expire(camera, steadyNowNs()));
-          ensureProfilePublicationHealthy();
-        } else consumeCameraResult(client, camera_assembler.expire());
+        consumeCameraResult(client, camera_assembler.expire());
 
         const auto now = std::chrono::steady_clock::now();
         // All SDK I/O stays on this thread; queries buffer stream frames in
@@ -1863,8 +1752,6 @@ struct Driver::Impl {
   DispatchQueue<TimeSyncRtkStatusState> rtk_module_dispatch;
   DispatchQueue<RtcmData> rover_dispatch;
   DispatchQueue<CameraFrameSet> camera_dispatch;
-  DispatchQueue<ProfileCameraJob> profile_dispatch;
-  std::array<std::atomic<uint64_t>,4> profile_decode_errors{};
   DispatchQueue<BoardImuSample> board_imu_dispatch;
   DispatchQueue<LidarPointBatch> lidar_dispatch;
   DispatchQueue<LidarImuSample> lidar_imu_dispatch;
@@ -1880,10 +1767,7 @@ struct Driver::Impl {
   std::string product_serial;
   uint8_t camera_mask = 0x0fu;
   prism::capture::CameraFrameAssembler camera_assembler;
-  ProfileCameraAssembler profile_assembler;
   prism::DeviceModel device_model = prism::DeviceModel::Unknown;
-  bool profile_camera = false;
-  uint64_t profile_epoch = 0;
   SensorDataHealth health;
   uint32_t detected_camera_fps = 0, detected_imu_rate = 0;
   uint8_t imu_mask = 0;

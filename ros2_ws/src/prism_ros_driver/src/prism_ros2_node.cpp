@@ -1,3 +1,6 @@
+#include <ament_index_cpp/get_package_share_directory.hpp>
+#include <cstdlib>
+#include <filesystem>
 #include <prism_ros_msgs/msg/gnss_reception_status.hpp>
 #include <prism_ros_msgs/msg/time_sync_rtk_status.hpp>
 #include <prism_ros_msgs/msg/time_sync_rtk_versions.hpp>
@@ -52,9 +55,6 @@
 #include <prism_ros_msgs/srv/sync_system_time.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/compressed_image.hpp>
-#include <sensor_msgs/msg/image.hpp>
-#include <prism_ros_msgs/msg/profile_camera_metadata.hpp>
-#include "prism_ros_adapter/profile_camera.hpp"
 #include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <sensor_msgs/msg/point_field.hpp>
@@ -337,12 +337,6 @@ class PrismRos2Node : public rclcpp::Node {
                                        "/image/compressed"),
               camera_qos);
     }
-    for (size_t i=0;i<4;++i) {
-      raw_camera_publishers_[i] = create_publisher<sensor_msgs::msg::Image>(
-          topic(topic_prefix_, "camera"+std::to_string(i)+"/image_raw"), sensor_qos(2));
-      profile_metadata_publishers_[i] = create_publisher<prism_ros_msgs::msg::ProfileCameraMetadata>(
-          topic(topic_prefix_, "camera"+std::to_string(i)+"/profile_metadata"), sensor_qos(8));
-    }
     camera_metadata_publisher_ =
         create_publisher<prism_ros_msgs::msg::CameraFrameMetadata>(
             topic(topic_prefix_, "camera/metadata"),
@@ -390,7 +384,6 @@ class PrismRos2Node : public rclcpp::Node {
       if(value.channel==0||value.channel==2) cors_raw_publisher_->publish(message);
     };
     callbacks.camera = [this](const auto& value) { publishCamera(value); };
-    callbacks.profile_camera = [this](const auto& value) { publishProfileCamera(value); };
     callbacks.board_imu = [this](const auto& value) { publishBoardImu(value); };
     callbacks.lidar_points =
         [this](const auto& value) { publishLidar(value); };
@@ -985,38 +978,6 @@ class PrismRos2Node : public rclcpp::Node {
    }  // Older ROS2 builds retain bounded queues, not a fabricated ACK result.
   }
 
-  void publishProfileCamera(const prism_ros_adapter::ProfileCameraImage& frame) {
-    prism_ros_msgs::msg::ProfileCameraMetadata metadata;
-    metadata.header.frame_id = camera_frame_prefix_ + std::to_string(frame.camera);
-    metadata.header.stamp = rosTime(frame.source_timestamp_us * 1000u);
-    metadata.camera=frame.camera; metadata.format=frame.format;
-    metadata.source_bits=frame.source_bits; metadata.bayer=frame.bayer;
-    metadata.timing_mode=frame.timing_mode; metadata.transfer_id=frame.transfer_id;
-    metadata.source_frame_id=frame.source_frame_id; metadata.source_frame_valid=frame.source_frame_valid;
-    metadata.source_frame_step=frame.source_frame_step;
-    metadata.trigger_sequence=frame.trigger_sequence; metadata.source_timestamp_us=frame.source_timestamp_us;
-    metadata.acquisition_epoch=frame.acquisition_epoch;
-    metadata.timestamp_utc_valid=false; metadata.image_published=frame.image_published;
-    metadata.width=frame.width; metadata.height=frame.height;
-    metadata.exposure_us=frame.exposure_us; metadata.gain_x1024=frame.gain_x1024;
-    if (frame.image_published) {
-      if (frame.source_bits==8 || frame.source_bits==12) {
-        sensor_msgs::msg::Image image;
-        image.header=metadata.header; image.width=frame.width; image.height=frame.height;
-        image.encoding=frame.source_bits==12 ? "16UC1" : "8UC1";
-        image.is_bigendian=false; image.step=frame.width*(frame.source_bits==12 ? 2u : 1u); image.data=frame.data;
-        raw_camera_publishers_.at(frame.camera)->publish(image);
-        acknowledgePublication(raw_camera_publishers_.at(frame.camera),raw_camera_ack_.at(frame.camera),true);
-      } else {
-        sensor_msgs::msg::CompressedImage image; image.header=metadata.header;
-        image.format="jpeg"; image.data=frame.data;
-        camera_publishers_.at(frame.camera)->publish(image);
-        acknowledgePublication(camera_publishers_.at(frame.camera),camera_ack_.at(frame.camera),true);
-      }
-    }
-    profile_metadata_publishers_.at(frame.camera)->publish(metadata);
-  }
-
   void publishCamera(const prism_ros_adapter::CameraFrameSet& frame) {
     const auto stamp = rosTime(frame.timestamp_ns);
     for (size_t i = 0; i < camera_publishers_.size(); ++i) {
@@ -1189,9 +1150,6 @@ class PrismRos2Node : public rclcpp::Node {
   bool reliable_sensor_qos_=true;
   std::atomic<uint64_t> dds_ack_timeouts_{0};
   std::array<prism_ros_adapter::PublicationAckWindow,4> camera_ack_;
-  std::array<prism_ros_adapter::PublicationAckWindow,4> raw_camera_ack_;
-  std::array<rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr,4> raw_camera_publishers_;
-  std::array<rclcpp::Publisher<prism_ros_msgs::msg::ProfileCameraMetadata>::SharedPtr,4> profile_metadata_publishers_;
   std::array<prism_ros_adapter::PublicationAckWindow,2> board_imu_ack_{
       prism_ros_adapter::PublicationAckWindow(64),prism_ros_adapter::PublicationAckWindow(64)};
   std::string camera_frame_prefix_;
@@ -1256,9 +1214,25 @@ class PrismRos2Node : public rclcpp::Node {
 
 }  // namespace
 
+// Resolve the installed profile before DDS participant creation, including
+// direct `ros2 run` and RK-local launches. Explicit user profiles take priority.
+// Fast DDS 2.6 waits for its periodic heartbeat to request ACKs when history
+// is not full; the default 3s period exceeds our bounded 100ms ACK window.
 int main(int argc, char** argv) {
-  rclcpp::init(argc, argv);
   try {
+    const char* rmw = std::getenv("RMW_IMPLEMENTATION");
+    if ((!rmw || std::string(rmw).find("fastrtps") != std::string::npos) &&
+        !std::getenv("FASTRTPS_DEFAULT_PROFILES_FILE") &&
+        !std::getenv("FASTDDS_DEFAULT_PROFILES_FILE") &&
+        !std::filesystem::exists("DEFAULT_FASTRTPS_PROFILES.xml") &&
+        !std::filesystem::exists("DEFAULT_FASTDDS_PROFILES.xml")) {
+      const auto profile = ament_index_cpp::get_package_share_directory("prism_ros_driver") +
+                           "/config/fastdds.xml";
+      if (!std::filesystem::is_regular_file(profile) ||
+          setenv("FASTRTPS_DEFAULT_PROFILES_FILE", profile.c_str(), 0) != 0)
+        throw std::runtime_error("cannot configure installed DDS heartbeat profile");
+    }
+    rclcpp::init(argc, argv);
     auto node = std::make_shared<PrismRos2Node>();
     // Construct the executor while the context is valid. An immediate open
     // failure (e.g. missing network password) must not race its construction

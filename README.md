@@ -6,7 +6,8 @@ proprietary; see [license scope](LICENSING.md) and
 
 [![ROS release tag test](https://github.com/DIBULI/Prism-ROS-adapter/actions/workflows/release-tag-test.yml/badge.svg)](https://github.com/DIBULI/Prism-ROS-adapter/actions/workflows/release-tag-test.yml)
 
-Prism ROS Adapter exposes DIBULI Prism data as standard ROS topics. The shared
+Prism ROS Adapter 1.3.0 supports **413GSV0 only** and exposes its data as standard ROS topics.
+Devices without a reported model use the legacy 413GSV0 path; other reported models are rejected before capture. The shared
 driver supports the Host USB/network SDK (ROS 1/2) and the RK-local SDK (ROS 2 on RK
 ARM64). The pinned SDK submodule provides public headers and binary libraries.
 
@@ -35,9 +36,8 @@ This repository pins Prism SDK `1.3.0` (commit
 submodule. It contains the Host SDK 1.3.0 runtime/ABI 19 for Agent 1.3.0.
 The pinned [SDK v1.3.0](https://github.com/DIBULI/Prism-SDK/releases/tag/v1.3.0)
 includes the aligned RK-local C++ API and interface guides under `docs/`.
-This pin includes native RAW8/RAW12 decoders and legacy Agent connection
-compatibility. Independent RAW images use `cameraN/image_raw` and
-`cameraN/profile_metadata`; JPEG cameras retain the compressed image topics.
+This pin includes the current legacy Agent connection fixes. ROS camera output
+uses the 413GSV0 JPEG and metadata topics.
 This refresh updates the SDK libraries and adds raw GNSS observation/ephemeris
 and module CORS topics. RTK workflow/continuous-position examples retain English
 usage comments in their source. Rebuild generated messages and consumers.
@@ -131,9 +131,9 @@ For a Docker deployment, forward the variable by name with
 device mapping is required for a network-only session.
 
 Camera/IMU/LiDAR/GNSS/RTK keep the existing topics and receive/ACK pipeline.
-Camera output follows the detected product: JPEG or native RAW profile topics.
+Camera output uses the 413GSV0 JPEG preview path.
 SDK negotiation caps wired camera delivery at 20 FPS (Wi-Fi/unknown:
-10 FPS); lower native rates such as 415RSV0 1/2 FPS stay lower. IMU/GNSS/LiDAR rates
+10 FPS). IMU/GNSS/LiDAR rates
 are not changed. This connection feature does not guarantee lossless network
 delivery; existing gap, CRC and queue warnings remain enabled. Ctrl-C follows
 the same STOP/cleanup path as USB; a disconnected link cannot confirm STOP.
@@ -194,6 +194,14 @@ ROS2 APIs such as Foxy have no public ACK-wait operation: they retain bounded
 queues and report `dds_ack_supported=false` with a warning, rather than claiming
 confirmation. DDS ACKs confirm middleware reception, not completion of a subscriber callback or disk
 write. Queues remain finite and slow consumers can still lose data.
+
+For Fast DDS, the node loads the installed `config/fastdds.xml` before starting
+ROS, using a 10 ms heartbeat so Humble's default 3-second heartbeat does not
+stall these 100 ms acknowledgment windows. Explicit `FASTRTPS_DEFAULT_PROFILES_FILE`,
+`FASTDDS_DEFAULT_PROFILES_FILE`, and working-directory default profiles take priority.
+When supplying a custom profile, configure a suitably short writer heartbeat;
+the adapter does not relax the ACK deadline or hide delivery errors.
+See the [Fast DDS maintainer explanation](https://github.com/ros2/rmw_fastrtps/issues/844).
 
 ### Sensor data loss warnings (ROS 1 and ROS 2)
 
@@ -896,66 +904,3 @@ These tests do not connect hardware or start CORS.
 
 Historical validation records under `docs/testing/` describe their original
 versions only; they are not current interface documentation.
-# Native RAW profile images
-
-415RSV0 uses GPU-native RAW8 profile capture. 21315V0 uses JPEG on cam0/cam3
-and compressed RAW12 on cam1/cam2. 413GSV0 retains the existing JPEG path.
-These changes require the matching SDK/Agent; stale prebuilt packages
-are not interchangeable. Host USB/network and the updated RK-local source API
-select the same GPU-only profile modes. RK-local preserves its no-argument
-2 FPS default; the explicit 415RSV0 method accepts only 1 or 2 FPS. Independent
-profile transfers are acknowledged by the ROS assembler, not the C SDK's
-legacy four-JPEG assembler. The release bundles matched platform libraries;
-offline regressions do not establish hardware or long-duration acceptance.
-
-Each healthy camera publishes independently. RAW8 is decoded before
-publishing `cameraN/image_raw` as `sensor_msgs/Image`
-with encoding `8UC1`, step=width and exactly one original byte per pixel. No
-gamma, demosaic, depth expansion or CPU encoder fallback is applied. `8UC1`
-does not guess the CFA layout from an undocumented Bayer code. Mixed JPEG lanes
-retain `cameraN/image/compressed`. RAW12 is losslessly unpacked into little-endian
-`16UC1`, step=width*2, preserving sample values 0..4095 without left-shifting or
-tone mapping. `source_bits=12` retains the true sensor depth. This ROS wire
-representation is separate from compressed RAW12 device recording.
-
-Record the corresponding `cameraN/profile_metadata` topics too. They distinguish
-global transfer ID, per-camera source frame ID, actual common trigger group,
-adapter acquisition epoch, sensor exposure/gain, source frame step and timing mode.
-An explicitly advertised frame step of 3 is accounted for without rewriting IDs
-or inventing missing frames; a real skipped delivery still raises a diagnostic.
-Image and
-metadata headers repeat the same source timestamp and camera frame name.
-The source timestamp is a **device-clock value, not proven UTC**. A current
-DeviceInfo sync flag is not evidence about an individual historical image.
-With the existing default `require_synchronized_timestamps=true`, profile
-metadata is published but images are explicitly withheld with diagnostics
-(`image_published=false`). Set it to `false` to preserve native profile images
-and device-clock times; do not mix these stamps with UTC topics without a
-separately verified clock mapping.
-
-Assembly is bounded per lane. Replacement, expiry, malformed chunks, GPU faults
-and pixel CRC failures are visible, and each retired transfer returns one credit.
-Decoding/publication runs outside the USB/control thread in a four-image bounded
-queue; overflow terminates the session without evicting already accepted images.
-At final STOP the driver drains buffered SDK events before closing, without
-issuing new credits or restarting the source. The receive phase is bounded to
-5 seconds, 65,536 frames and 512 MiB total processed payload (not a new buffer),
-ending after 100 ms of receive silence. Publication queues retain their fixed
-capacities, wait only within that deadline for tail capacity, and drain accepted
-samples on shutdown, including IMU/RTCM and the last partial LiDAR time window.
-Truncated camera transfers, SDK overflow, decode/CRC or publication failures are
-reported as unsuccessful completion. A quiet receive queue and a STOP reply
-are **not** independent proof of hardware idle; an Agent that sends new data
-after the terminal boundary violates the contract. SDK buffering during the
-synchronous STOP still has its own limits and must be validated on-device.
-The same receive drain also runs before an idle-only control operation or
-stream reconfiguration resets assemblers/clocks. A further bounded 5-second
-publication barrier waits for queued **and in-flight** callbacks before the
-operation/restart; old profile jobs keep their original acquisition epoch.
-Incomplete tails or failed callbacks block the operation and automatic restart.
-A clean restart clears the temporary drain deadline and restores the ordinary
-bounded queue policy. This does not add a gap-free live-control capability:
-operations requiring idle still explicitly stop acquisition.
-This does not by itself guarantee downstream rosbag/DDS storage: monitor
-publication diagnostics and validate the bag. Hardware/TF performance acceptance
-and complete release packaging remain separate from these source changes.

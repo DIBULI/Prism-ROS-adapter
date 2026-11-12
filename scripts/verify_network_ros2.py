@@ -138,6 +138,7 @@ def main():
                             'serial-mismatch': 'serial does not match', 'stream': 'Network camera FPS ceiling: 10'}[case]
                 assert expected in text, (case, text[-3000:])
                 if case == 'stream':
+                    assert 'DDS delivery unconfirmed' not in text and 'DDS acknowledgment failed' not in text, text[-3000:]
                     assert not any('stream=camera' in line and 'timestamp_gap' in line for line in text.splitlines()), 'camera health uses requested30 instead of negotiated10'
                 assert 'Opening USB' not in text, 'network failure fell back to USB'
                 assert mock.error is None, repr(mock.error)

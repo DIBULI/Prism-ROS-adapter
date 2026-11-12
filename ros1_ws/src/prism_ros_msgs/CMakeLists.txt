@@ -18,7 +18,6 @@ add_message_files(FILES
   RoverRtcmStatus.msg
   RtcmData.msg
   CameraFrameMetadata.msg
-  ProfileCameraMetadata.msg
   DeviceConfiguration.msg
   DeviceInfo.msg
   LidarNetworkStatus.msg

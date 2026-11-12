@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<dds xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+  <profiles>
+    <publisher profile_name="prism_reliable_publisher" is_default_profile="true">
+      <times>
+        <heartbeatPeriod><sec>0</sec><nanosec>10000000</nanosec></heartbeatPeriod>
+      </times>
+    </publisher>
+  </profiles>
+</dds>

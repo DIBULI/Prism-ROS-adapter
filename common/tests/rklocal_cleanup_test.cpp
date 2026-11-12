@@ -26,7 +26,7 @@ namespace prism_ros_adapter {
 struct DriverDataHealthTest {
   static int exercise(const char* path){
     prism::rklocal::ClientOptions o;o.socket_path=path;o.raw_camera_imu_frames=true;
-    auto c=sdk::Client::open(o);c.setKeepaliveEnabled(false);c.startPrism415rsv0Video(2);
+    auto c=sdk::Client::open(o);c.setKeepaliveEnabled(false);c.startVideo1280x1024(10);
     DriverConfig config;DriverCallbacks callbacks;Driver::Impl d(config,callbacks);
     d.capture_start_issued=true;
     std::unique_ptr<sdk::ImuStream> imu;
