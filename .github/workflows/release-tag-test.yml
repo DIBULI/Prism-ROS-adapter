@@ -221,8 +221,11 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           package="Prism-ROS-adapter-${version}"
           mkdir -p "$RUNNER_TEMP/$package"
-          tar --exclude-vcs --exclude='./build-*' -cf - . \
+          # SDK checksums include .gitattributes/.gitignore. Exclude only Git
+          # databases (including the submodule .git file), not tracked configs.
+          tar --exclude='./.git' --exclude='*/.git' --exclude='./build-*' -cf - . \
             | tar -C "$RUNNER_TEMP/$package" -xf -
+          python3 "$RUNNER_TEMP/$package/third_party/Prism-SDK/scripts/test_all_examples.py" --verify-only
           tar -C "$RUNNER_TEMP" -czf "$package.tar.gz" "$package"
           sha256sum "$package.tar.gz" > "$package.tar.gz.sha256"
 
