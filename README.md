@@ -130,7 +130,8 @@ For a Docker deployment, forward the variable by name with
 `--env PRISM_NETWORK_TOKEN` and ensure the device address is reachable. No USB
 device mapping is required for a network-only session.
 
-Camera/IMU/LiDAR/GNSS/RTK keep the existing topics and receive/ACK pipeline.
+All transports use the same topics and receive/ACK pipeline. IMU publication
+defaults to compact batches; legacy single-sample topics are opt-in.
 Camera output uses the 413GSV0 JPEG preview path.
 SDK negotiation caps wired camera delivery at 20 FPS (Wi-Fi/unknown:
 10 FPS). IMU/GNSS/LiDAR rates
@@ -284,7 +285,7 @@ The recorder's subscriber history is independent of the driver's publisher
 history. Reliable delivery alone does not provide an unlimited buffer.
 
 The installed [`recording_qos.yaml`](ros2_ws/src/prism_ros_driver/config/recording_qos.yaml)
-covers **all 21 published sensor/diagnostic topics** with
+covers **24 sensor/diagnostic topics, including optional legacy IMU topics**, with
 `keep_last`, `reliable` and `volatile` policies:
 
 | Recorded topics | Depth per topic (messages) |
