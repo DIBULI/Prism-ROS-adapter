@@ -14,12 +14,14 @@ RUN bash /usr/local/bin/prism-use-tsinghua-mirrors \
       ros-${ROS_DISTRO}-diagnostic-msgs ros-${ROS_DISTRO}-sensor-msgs \
       ros-${ROS_DISTRO}-std-msgs ros-${ROS_DISTRO}-launch-ros \
       ros-${ROS_DISTRO}-rosidl-default-runtime \
+      libzstd1 \
     && rm -rf /var/lib/apt/lists/*
 
 FROM runtime AS builder
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
       build-essential cmake python3-colcon-common-extensions \
+      libzstd-dev \
       ros-${ROS_DISTRO}-builtin-interfaces ros-${ROS_DISTRO}-rosidl-default-generators \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=prism_sdk include /opt/prism-sdk/include

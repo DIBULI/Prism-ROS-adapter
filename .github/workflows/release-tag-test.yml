@@ -65,14 +65,17 @@ jobs:
       - name: Verify pinned release metadata
         run: |
           test "$(cat VERSION)" = 1.3.0
-          test "$(git -C third_party/Prism-SDK rev-parse HEAD)" = d4ac1e91c09137b21501fcc5a3a47db218021ee8
+          test "$(git -C third_party/Prism-SDK rev-parse HEAD)" = 11109f89a0f7f5b8171b5508dbc77817b8450ecb
           test "$(cat third_party/Prism-SDK/VERSION)" = "$(cat VERSION)"
 
       - name: Verify Prism SDK submodule
         run: bash scripts/verify_sdk_submodule.sh all
 
       - name: Configure common tests
-        run: cmake -S . -B build-common -DBUILD_TESTING=ON
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libusb-1.0-0-dev libssl-dev libzstd-dev
+          cmake -S . -B build-common -DBUILD_TESTING=ON
 
       - name: Build common tests
         run: cmake --build build-common --parallel

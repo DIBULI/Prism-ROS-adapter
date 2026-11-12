@@ -949,16 +949,18 @@ class PrismRos1Node {
     metadata.source_bits=frame.source_bits; metadata.bayer=frame.bayer;
     metadata.timing_mode=frame.timing_mode; metadata.transfer_id=frame.transfer_id;
     metadata.source_frame_id=frame.source_frame_id; metadata.source_frame_valid=frame.source_frame_valid;
+    metadata.source_frame_step=frame.source_frame_step;
     metadata.trigger_sequence=frame.trigger_sequence; metadata.source_timestamp_us=frame.source_timestamp_us;
     metadata.acquisition_epoch=frame.acquisition_epoch;
     metadata.timestamp_utc_valid=false; metadata.image_published=frame.image_published;
     metadata.width=frame.width; metadata.height=frame.height;
     metadata.exposure_us=frame.exposure_us; metadata.gain_x1024=frame.gain_x1024;
     if (frame.image_published) {
-      if (frame.source_bits==8) {
+      if (frame.source_bits==8 || frame.source_bits==12) {
         sensor_msgs::Image image;
         image.header=metadata.header; image.width=frame.width; image.height=frame.height;
-        image.encoding="8UC1"; image.is_bigendian=false; image.step=frame.width; image.data=frame.data;
+        image.encoding=frame.source_bits==12 ? "16UC1" : "8UC1";
+        image.is_bigendian=false; image.step=frame.width*(frame.source_bits==12 ? 2u : 1u); image.data=frame.data;
         raw_camera_publishers_.at(frame.camera).publish(image);
       } else {
         sensor_msgs::CompressedImage image; image.header=metadata.header;

@@ -31,13 +31,13 @@ libstdc++ and glibc while building in the target ROS environment.
 ## Prism SDK Git submodule
 
 This repository pins Prism SDK `1.3.0` (commit
-`d4ac1e91c09137b21501fcc5a3a47db218021ee8`) as the `third_party/Prism-SDK` Git
+`11109f89a0f7f5b8171b5508dbc77817b8450ecb`) as the `third_party/Prism-SDK` Git
 submodule. It contains the Host SDK 1.3.0 runtime/ABI 19 for Agent 1.3.0.
 The pinned [SDK v1.3.0](https://github.com/DIBULI/Prism-SDK/releases/tag/v1.3.0)
 includes the aligned RK-local C++ API and interface guides under `docs/`.
-This pin also includes validated 415RSV0 RAW12 shared-trigger header helpers.
-The transport runtime/ABI remains unchanged; the ROS camera topics still use
-their existing JPEG/metadata path, not the Viewer RAW12 grouped-display path.
+This pin includes native RAW8/RAW12 decoders and legacy Agent connection
+compatibility. Independent RAW images use `cameraN/image_raw` and
+`cameraN/profile_metadata`; JPEG cameras retain the compressed image topics.
 This refresh updates the SDK libraries and adds raw GNSS observation/ephemeris
 and module CORS topics. RTK workflow/continuous-position examples retain English
 usage comments in their source. Rebuild generated messages and consumers.
@@ -51,7 +51,8 @@ CLI). SDK raw-file export is for SDK/Viewer consumers; ROS bag conversion is a
 Viewer function, separate from this live ROS adapter.
 
 Use Agent 1.3.0 with its matching product-specific Sensor Board firmware
-(current delivery: 0.5.2). Do not mix SDK headers and libraries
+(current delivery: 0.5.3). Devices that do not report a model use the legacy
+413GSV0 JPEG camera path. Do not mix SDK headers and libraries
 from different versions.
 
 Clone recursively:
@@ -130,8 +131,8 @@ For a Docker deployment, forward the variable by name with
 device mapping is required for a network-only session.
 
 Camera/IMU/LiDAR/GNSS/RTK keep the existing topics and receive/ACK pipeline.
-Camera output remains the adapter's JPEG preview path, not a new RAW12 recording
-interface. SDK negotiation caps wired camera delivery at 20 FPS (Wi-Fi/unknown:
+Camera output follows the detected product: JPEG or native RAW profile topics.
+SDK negotiation caps wired camera delivery at 20 FPS (Wi-Fi/unknown:
 10 FPS); lower native rates such as 415RSV0 1/2 FPS stay lower. IMU/GNSS/LiDAR rates
 are not changed. This connection feature does not guarantee lossless network
 delivery; existing gap, CRC and queue warnings remain enabled. Ctrl-C follows
@@ -895,28 +896,34 @@ These tests do not connect hardware or start CORS.
 
 Historical validation records under `docs/testing/` describe their original
 versions only; they are not current interface documentation.
-# Native RAW8 profile images (coordinated source update)
+# Native RAW profile images
 
-415RSV0 uses GPU-native RAW8 profile capture (source 1/2 FPS); 21315V0
-uses its mixed JPEG/native RAW8 profile. 413GSV0 retains the existing JPEG path.
-These changes require the matching native8 SDK/Agent; stale prebuilt packages
+415RSV0 uses GPU-native RAW8 profile capture. 21315V0 uses JPEG on cam0/cam3
+and compressed RAW12 on cam1/cam2. 413GSV0 retains the existing JPEG path.
+These changes require the matching SDK/Agent; stale prebuilt packages
 are not interchangeable. Host USB/network and the updated RK-local source API
 select the same GPU-only profile modes. RK-local preserves its no-argument
 2 FPS default; the explicit 415RSV0 method accepts only 1 or 2 FPS. Independent
 profile transfers are acknowledged by the ROS assembler, not the C SDK's
-legacy four-JPEG assembler. This source API update still requires matched
-platform libraries; it is not a hardware acceptance or release claim.
+legacy four-JPEG assembler. The release bundles matched platform libraries;
+offline regressions do not establish hardware or long-duration acceptance.
 
-Each healthy camera publishes independently. RAW8 is losslessly decoded and its
-full pixel CRC verified before publishing `cameraN/image_raw` as `sensor_msgs/Image`
+Each healthy camera publishes independently. RAW8 is decoded before
+publishing `cameraN/image_raw` as `sensor_msgs/Image`
 with encoding `8UC1`, step=width and exactly one original byte per pixel. No
 gamma, demosaic, depth expansion or CPU encoder fallback is applied. `8UC1`
 does not guess the CFA layout from an undocumented Bayer code. Mixed JPEG lanes
-retain `cameraN/image/compressed`.
+retain `cameraN/image/compressed`. RAW12 is losslessly unpacked into little-endian
+`16UC1`, step=width*2, preserving sample values 0..4095 without left-shifting or
+tone mapping. `source_bits=12` retains the true sensor depth. This ROS wire
+representation is separate from compressed RAW12 device recording.
 
 Record the corresponding `cameraN/profile_metadata` topics too. They distinguish
 global transfer ID, per-camera source frame ID, actual common trigger group,
-adapter acquisition epoch, sensor exposure/gain and timing mode. Image and
+adapter acquisition epoch, sensor exposure/gain, source frame step and timing mode.
+An explicitly advertised frame step of 3 is accounted for without rewriting IDs
+or inventing missing frames; a real skipped delivery still raises a diagnostic.
+Image and
 metadata headers repeat the same source timestamp and camera frame name.
 The source timestamp is a **device-clock value, not proven UTC**. A current
 DeviceInfo sync flag is not evidence about an individual historical image.

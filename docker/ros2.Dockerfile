@@ -13,6 +13,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
       build-essential \
       libssl-dev \
       libusb-1.0-0-dev \
+      libzstd-dev \
       pkg-config \
       ros-${ROS_DISTRO}-diagnostic-msgs \
       ros-${ROS_DISTRO}-builtin-interfaces \

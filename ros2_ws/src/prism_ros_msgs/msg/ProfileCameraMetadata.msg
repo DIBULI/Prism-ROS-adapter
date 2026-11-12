@@ -9,6 +9,7 @@ uint8 bayer
 uint8 timing_mode
 uint32 transfer_id
 uint32 source_frame_id
+uint32 source_frame_step
 bool source_frame_valid
 uint32 trigger_sequence
 uint64 source_timestamp_us

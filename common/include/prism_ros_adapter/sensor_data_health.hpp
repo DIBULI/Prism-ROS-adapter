@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <optional>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -89,7 +90,9 @@ class SensorDataHealth {
 
   void observe(Stream stream, uint64_t now, uint64_t stamp_ns,
                std::optional<uint64_t> sequence = std::nullopt,
-               unsigned sequence_bits = 32, bool equal_stamp_valid = false) {
+               unsigned sequence_bits = 32, bool equal_stamp_valid = false,
+               uint32_t sequence_step = 1) {
+    if (!sequence_step) throw std::invalid_argument("zero source sequence step");
     auto& s = state(stream);
     touch(stream, now);
     bool reset_sequence = false;
@@ -104,7 +107,11 @@ class SensorDataHealth {
         else if (delta >= half) {
           add(stream, Issue::SequenceReset);
           reset_sequence = true;
-        } else if (delta > 1) add(stream, Issue::SequenceMissing, delta - 1);
+        } else if (delta % sequence_step) {
+          add(stream, Issue::SequenceReset);
+          reset_sequence = true;
+        } else if (delta > sequence_step)
+          add(stream, Issue::SequenceMissing, delta / sequence_step - 1);
       }
       s.sequence = sequence;
     }

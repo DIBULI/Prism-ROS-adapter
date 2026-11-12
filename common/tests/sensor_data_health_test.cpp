@@ -73,6 +73,14 @@ int main() {
     require(contains(logs, "sequence_reset_or_reorder+=1") && !contains(logs, "sequence_missing"),
             "sequence reset is unsigned underflow");
   }
+  Health selected;
+  selected.observe(S::Camera1, 0, 0, UINT32_MAX-1, 32, false, 3);
+  selected.observe(S::Camera1, 1, 0, 1, 32, false, 3);
+  require(selected.reports(1, true).empty(), "selected frame rollover is not loss");
+  selected.observe(S::Camera1, 2, 0, 7, 32, false, 3);
+  require(contains(selected.reports(2, true), "sequence_missing+=1"), "selected gap count");
+  selected.observe(S::Camera1, 3, 0, 8, 32, false, 3);
+  require(contains(selected.reports(3, true), "sequence_reset_or_reorder+=1"), "invalid selected stride");
   Health navigation;
   navigation.session(S::RawDispatch, 1);
   navigation.observe(S::RawDispatch, 0, 0, 100, 64);

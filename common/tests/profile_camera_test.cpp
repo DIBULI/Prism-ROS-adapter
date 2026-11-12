@@ -35,6 +35,20 @@ struct DriverDataHealthTest {
     c.data=im.encoded.data()+offset;c.data_size=count;
     c.flags=4|(offset==0?1:0)|(offset+count==im.encoded.size()?2:0);return c;
   }
+  static prism::capture::ProfileImage raw12(uint8_t camera) {
+    using namespace prism::capture;
+    auto im=fixture(camera,400+camera,91);
+    im.format=kRaw12Rice; auto& b=im.encoded;b.assign(80,0);
+    std::vector<uint8_t> pixels(size_t(im.width)*im.height*2);
+    for(size_t i=0;i<pixels.size();i+=4){pixels[i]=0xbc;pixels[i+1]=0x0a;pixels[i+2]=0xef;pixels[i+3]=0x0d;}
+    for(size_t i=0;i<size_t(im.width)*im.height;i+=256)b.insert(b.end(),{0,0xbc,0x0a,0xef,0x0d});
+    std::memcpy(b.data(),"PRG1",4);b[4]=3;b[5]=80;b[6]=12;b[7]=2;b[36]=2;b[37]=camera;b[38]=2;
+    put(b,8,im.width);put(b,12,im.height);put(b,16,23592960);
+    put(b,20,rawCrc32(pixels.data(),pixels.size()));put(b,24,91);put(b,28,1800);put(b,32,1024);put(b,40,5000000);
+    put(b,48,rawCrc32(b.data()+80,b.size()-80));put(b,52,256);put(b,56,b.size()-80);
+    put(b,64,3);put(b,68,6000);put(b,72,2000);put(b,76,rawHeaderCrc32(b.data(),76));
+    return im;
+  }
   template<class F> static void rejects(F fn,const char* why) {
     bool failed=false;try{fn();}catch(const std::exception&){failed=true;}require(failed,why);
   }
@@ -62,6 +76,22 @@ struct DriverDataHealthTest {
       im.encoded.back()^=1; put(im.encoded,20,1);
       put(im.encoded,76,prism::capture::rawHeaderCrc32(im.encoded.data(),80));
       rejects([&]{decodeProfileCamera(im);},"full pixel CRC failure");
+    }
+    // Current RAW8 v2 omits payload CRCs. Do not reintroduce a payload check
+    // or expose a per-image checking flag; malformed structure still fails.
+    auto current=fixture(0,199,80);current.encoded[4]=2;
+    put(current.encoded,20,0);put(current.encoded,48,0);put(current.encoded,76,0);
+    put(current.encoded,76,prism::capture::rawHeaderCrc32(current.encoded.data(),80));
+    current.encoded.back()^=1;
+    require(decodeProfileCamera(current).data.back()==(uint8_t((prism::capture::kRaw8Bytes-1)*13)^1),"current RAW8 decode");
+    for(uint8_t camera:{1,2}) {
+      auto im=raw12(camera);auto decoded=decodeProfileCamera(im);
+      require(decoded.source_bits==12&&decoded.source_frame_step==3&&decoded.source_frame_id==91&&
+        decoded.trigger_sequence==0&&decoded.bayer==2,"selected RAW12 metadata");
+      require(decoded.data.size()==5120u*3072u*2,"RAW12 ROS container size");
+      for(size_t i=0;i<decoded.data.size();i+=4)
+        require(decoded.data[i]==0xbc&&decoded.data[i+1]==0x0a&&decoded.data[i+2]==0xef&&decoded.data[i+3]==0x0d,
+          "RAW12 low bits or byte order changed");
     }
     auto pending=fixture(0,200,50);
     assembly.ingest(chunk(pending,0,500),100);

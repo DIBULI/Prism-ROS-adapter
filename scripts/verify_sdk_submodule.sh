@@ -33,7 +33,9 @@ EXPECTED_PREFIX_FILES=(
   include/prism/usb/network.hpp
   include/prism/usb/network_runtime_api.hpp
   include/prism/usb/profile_video.hpp
+  include/prism/usb/profile_thumbnail.hpp
   include/prism/usb/raw_header.hpp
+  include/prism/usb/raw12_header.hpp
   include/prism/usb/raw8_header.hpp
   include/prism/usb/raw8_rice.hpp
   include/prism/usb/raw8_video.hpp

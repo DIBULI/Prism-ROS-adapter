@@ -12,6 +12,7 @@ namespace prism_ros_adapter {
 struct ProfileCameraImage {
   uint8_t camera = 0, format = 0, source_bits = 0, bayer = 0, timing_mode = 0;
   uint32_t transfer_id = 0, source_frame_id = 0, trigger_sequence = 0;
+  uint32_t source_frame_step = 1;
   uint32_t width = 0, height = 0, exposure_us = 0, gain_x1024 = 0;
   uint64_t source_timestamp_us = 0;
   uint64_t acquisition_epoch = 0; // Adapter start epoch; group IDs may restart.
@@ -33,16 +34,29 @@ inline ProfileCameraImage decodeProfileCamera(const prism::capture::ProfileImage
   if (image.timestamp_us > 2147483647ULL * 1000000ULL + 999999ULL)
     throw std::runtime_error("profile timestamp exceeds common ROS1/ROS2 time range");
   if (image.camera >= 4) throw std::runtime_error("profile camera outside range");
-  if (image.format == prism::capture::kRaw8Rice) {
+  if (image.format == prism::capture::kRaw8Rice ||
+      image.format == prism::capture::kRaw12Rice ||
+      image.format == prism::capture::kRaw12Zstd) {
     auto raw = prism::capture::decodeRawImage(image.encoded, image.format);
     if (raw.camera != image.camera || raw.width != image.width || raw.height != image.height ||
         raw.source_timestamp_us != image.timestamp_us)
-      throw std::runtime_error("RAW8 envelope/header identity mismatch");
+      throw std::runtime_error("RAW envelope/header identity mismatch");
     out.source_bits = raw.source_bits; out.bayer = raw.bayer;
     out.timing_mode = raw.timing_mode; out.source_frame_id = raw.frame_id;
     out.source_frame_valid = true; out.trigger_sequence = raw.trigger_sequence;
+    out.source_frame_step = raw.source_frame_step;
     out.exposure_us = raw.exposure_us; out.gain_x1024 = raw.gain_x1024;
-    out.data = std::move(raw.pixels);
+    if (raw.source_bits == 12) {
+      // ROS has no packed 12-bit Image encoding. Preserve each 0..4095 sample
+      // in a little-endian 16UC1 container, with the true depth in metadata.
+      const size_t count = size_t(raw.width) * raw.height;
+      out.data.resize(count * 2);
+      for (size_t i=0; i<count; ++i) {
+        const auto value = prism::capture::rawPixel(raw, i);
+        out.data[2*i] = uint8_t(value);
+        out.data[2*i+1] = uint8_t(value >> 8);
+      }
+    } else out.data = std::move(raw.pixels);
   } else if (image.format == 2 && image.width == 1280 && image.height == 1024 &&
              image.encoded.size() >= 4 && image.encoded[0] == 0xff && image.encoded[1] == 0xd8 &&
              image.encoded[image.encoded.size()-2] == 0xff && image.encoded.back() == 0xd9) {

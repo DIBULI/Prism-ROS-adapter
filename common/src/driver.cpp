@@ -637,7 +637,8 @@ struct Driver::Impl {
     profile_camera = device_model == prism::DeviceModel::Prism415RSV0 ||
                      device_model == prism::DeviceModel::Prism21315V0;
     if (!profile_camera) {
-      if (device_model != prism::DeviceModel::Prism413GSV0)
+      if (device_model != prism::DeviceModel::Prism413GSV0 &&
+          device_model != prism::DeviceModel::Unknown)
         throw std::runtime_error("supported product identity required before camera START");
       return client.startVideo1280x1024(config.camera_fps);
     }
@@ -1326,6 +1327,22 @@ struct Driver::Impl {
           throw std::runtime_error("profile header/envelope mismatch");
         // Native source sequence is per camera, NOT the global transfer ID.
         health.observe(stream, steadyNowNs(), h.timestamp_us <= UINT64_MAX/1000u ? h.timestamp_us * 1000u : 0, h.frame_id);
+      } catch (const std::exception& e) {
+        health.add(stream, HealthIssue::Rejected); log(LogLevel::Warning, e.what());
+        if (draining_tail) tail_incomplete = true;
+        return;
+      }
+    } else if (image.format == prism::capture::kRaw12Rice ||
+               image.format == prism::capture::kRaw12Zstd) {
+      try {
+        const auto* p = image.encoded.data();
+        const auto h = prism::capture::parseRaw12Header(p, image.encoded.size(), image.encoded.size(), image.format);
+        const auto stamp = uint64_t(prism::capture::rawLe32(p+40)) |
+                           uint64_t(prism::capture::rawLe32(p+44)) << 32;
+        if (p[37] != camera || stamp != image.timestamp_us)
+          throw std::runtime_error("profile header/envelope mismatch");
+        health.observe(stream, steadyNowNs(), stamp <= UINT64_MAX/1000u ? stamp*1000u : 0,
+                       prism::capture::rawLe32(p+24), 32, false, h.source_frame_step);
       } catch (const std::exception& e) {
         health.add(stream, HealthIssue::Rejected); log(LogLevel::Warning, e.what());
         if (draining_tail) tail_incomplete = true;
