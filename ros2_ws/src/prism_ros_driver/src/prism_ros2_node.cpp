@@ -1,4 +1,4 @@
-#include <ament_index_cpp/get_package_share_directory.hpp>
+#include <ament_index_cpp/get_package_prefix.hpp>
 #include <cstdlib>
 #include <filesystem>
 #include <prism_ros_msgs/msg/gnss_reception_status.hpp>
@@ -1226,8 +1226,8 @@ int main(int argc, char** argv) {
         !std::getenv("FASTDDS_DEFAULT_PROFILES_FILE") &&
         !std::filesystem::exists("DEFAULT_FASTRTPS_PROFILES.xml") &&
         !std::filesystem::exists("DEFAULT_FASTDDS_PROFILES.xml")) {
-      const auto profile = ament_index_cpp::get_package_share_directory("prism_ros_driver") +
-                           "/config/fastdds.xml";
+      const auto profile = ament_index_cpp::get_package_prefix("prism_ros_driver") +
+                           "/share/prism_ros_driver/config/fastdds.xml";
       if (!std::filesystem::is_regular_file(profile) ||
           setenv("FASTRTPS_DEFAULT_PROFILES_FILE", profile.c_str(), 0) != 0)
         throw std::runtime_error("cannot configure installed DDS heartbeat profile");
