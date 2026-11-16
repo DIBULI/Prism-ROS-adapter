@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<dds xmlns="http://www.eprosima.com">
+  <profiles>
+    <data_writer profile_name="prism_reliable_publisher" is_default_profile="true">
+      <times>
+        <heartbeat_period><sec>0</sec><nanosec>10000000</nanosec></heartbeat_period>
+      </times>
+    </data_writer>
+  </profiles>
+</dds>

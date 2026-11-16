@@ -209,7 +209,8 @@ class MockAgent:
                         auth.extend(receive(self.conn, 1))
                     valid = auth == ('PRISM-NET/4 ' + self.network_token + '\n').encode()
                     auth[:] = b'\0' * len(auth)
-                    self.conn.sendall(b'OK 10\n' if valid else b'NO 00\n')
+                    # The deployed gateway rejects with a three-byte line.
+                    self.conn.sendall(b'OK 10\n' if valid else b'NO\n')
                     if not valid:
                         return
                     self.conn.settimeout(None)

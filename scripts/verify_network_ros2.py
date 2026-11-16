@@ -164,6 +164,7 @@ def main():
                 log.seek(0)
                 text = log.read()
                 assert password not in text, 'password leaked into log'
+                assert 'XMLPARSER' not in text and 'Problem loading XML' not in text, text[-3000:]
                 expected = {'missing-token': 'missing or empty', 'bad-token': 'network login rejected',
                             'serial-mismatch': 'serial does not match', 'stream': 'Network camera FPS ceiling: 10', 'legacy': 'Network camera FPS ceiling: 10'}[case]
                 assert expected in text, (case, text[-3000:])

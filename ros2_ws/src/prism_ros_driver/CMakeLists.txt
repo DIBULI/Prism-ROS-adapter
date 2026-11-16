@@ -23,6 +23,9 @@ find_package(prism_ros_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
+# Fast DDS 3 renamed the XML writer timing fields. Select its schema from
+# the installed dependency, rather than guessing from the ROS distro name.
+find_package(fastdds QUIET)
 
 set(PRISM_TRANSPORT "usb" CACHE STRING "Prism transport: usb or rklocal")
 set_property(CACHE PRISM_TRANSPORT PROPERTY STRINGS usb rklocal)
@@ -68,6 +71,9 @@ add_executable(prism_ros_driver_node
   ${CMAKE_CURRENT_SOURCE_DIR}/../../../common/src/lidar_frame_accumulator.cpp
 )
 target_compile_features(prism_ros_driver_node PRIVATE cxx_std_17)
+if(fastdds_FOUND AND fastdds_VERSION VERSION_GREATER_EQUAL 3)
+  target_compile_definitions(prism_ros_driver_node PRIVATE PRISM_FASTDDS_V3=1)
+endif()
 if(PRISM_TRANSPORT STREQUAL "rklocal")
   target_compile_definitions(prism_ros_driver_node PRIVATE PRISM_ROS_RKLOCAL=1)
 endif()

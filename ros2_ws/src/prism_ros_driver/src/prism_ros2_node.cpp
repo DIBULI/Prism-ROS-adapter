@@ -1274,9 +1274,15 @@ int main(int argc, char** argv) {
       const std::filesystem::path share =
           ament_index_cpp::get_package_share_directory("prism_ros_driver");
 #endif
+#if defined(PRISM_FASTDDS_V3)
+      const auto profile = (share / "config" / "fastdds3.xml").string();
+      const char* profile_env = "FASTDDS_DEFAULT_PROFILES_FILE";
+#else
       const auto profile = (share / "config" / "fastdds.xml").string();
+      const char* profile_env = "FASTRTPS_DEFAULT_PROFILES_FILE";
+#endif
       if (!std::filesystem::is_regular_file(profile) ||
-          setenv("FASTRTPS_DEFAULT_PROFILES_FILE", profile.c_str(), 0) != 0)
+          setenv(profile_env, profile.c_str(), 0) != 0)
         throw std::runtime_error("cannot configure installed DDS heartbeat profile");
     }
     rclcpp::init(argc, argv);
