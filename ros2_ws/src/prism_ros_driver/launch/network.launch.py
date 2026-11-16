@@ -1,4 +1,4 @@
-"""Host SDK 1.3.0 over trusted Ethernet; password stays in the environment."""
+"""Host SDK 1.3.1 over trusted Ethernet; password stays in the environment."""
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution

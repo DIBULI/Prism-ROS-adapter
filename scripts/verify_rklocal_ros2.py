@@ -67,6 +67,7 @@ class MockAgent:
         self.listener.listen(1)
         self.acks = collections.Counter()
         self.commands = collections.Counter()
+        self.hello_profiles = []
         self.frame_id = 0
         self.error = None
         self.streaming = False
@@ -87,6 +88,7 @@ class MockAgent:
         if self.network_token is not None and kind in (0x3A, 0x44, 0x3D, 0x40):
             time.sleep(.04)  # bounded network RTT; reproduce control/read starvation
         if kind == 1:
+            self.hello_profiles.append(data[4:20].rstrip(b'\0').decode('ascii'))
             body = bytearray(108)
             struct.pack_into("<HHI", body, 0, 1, 18, 8 * 1024 * 1024)  # wire header size, not runtime ABI
             body[8:19] = b"prism-agent"

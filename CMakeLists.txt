@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(prism_ros_adapter_common VERSION 1.3.0 LANGUAGES CXX)
+project(prism_ros_adapter_common VERSION 1.3.1 LANGUAGES CXX)
 
 include(CTest)
 
@@ -19,7 +19,7 @@ if(BUILD_TESTING)
   add_test(NAME recording-qos
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/common/tests/recording_qos_test.py)
   set(PRISM_SDK_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/third_party/Prism-SDK"
-      CACHE PATH "Pinned SDK 1.3.0 root")
+      CACHE PATH "Pinned SDK 1.3.1 root")
   add_executable(prism-connection-options-test common/tests/connection_options_test.cpp)
   target_compile_features(prism-connection-options-test PRIVATE cxx_std_17)
   target_include_directories(prism-connection-options-test PRIVATE common/include "${PRISM_SDK_ROOT}/include")
@@ -101,7 +101,7 @@ if(BUILD_TESTING)
       set(_sdk_arch x64)
     endif()
     list(APPEND CMAKE_PREFIX_PATH "${PRISM_SDK_ROOT}/runtime/ros/linux-${_sdk_arch}")
-    find_package(PrismUsbSdk 1.3.0 EXACT CONFIG REQUIRED)
+    find_package(PrismUsbSdk 1.3.1 EXACT CONFIG REQUIRED)
     set(PRISM_TEST_SDK Prism::UsbSdk)
   endif()
   foreach(kind supported_device driver_data_health imu_batch)
