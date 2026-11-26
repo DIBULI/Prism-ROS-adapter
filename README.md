@@ -6,7 +6,7 @@ proprietary; see [license scope](LICENSING.md) and
 
 [![ROS release tag test](https://github.com/DIBULI/Prism-ROS-adapter/actions/workflows/release-tag-test.yml/badge.svg)](https://github.com/DIBULI/Prism-ROS-adapter/actions/workflows/release-tag-test.yml)
 
-Prism ROS Adapter 1.3.1 supports **413GSV0 only** and exposes its data as standard ROS topics.
+Prism ROS Adapter 1.4.0 supports **413GSV0 only** and exposes its data as standard ROS topics.
 Devices without a reported model use the legacy 413GSV0 path; other reported models are rejected before capture. The shared
 driver supports the Host USB/network SDK (ROS 1/2) and the RK-local SDK (ROS 2 on RK
 ARM64). The pinned SDK submodule provides public headers and binary libraries.
@@ -31,11 +31,11 @@ libstdc++ and glibc while building in the target ROS environment.
 
 ## Prism SDK Git submodule
 
-This repository pins Prism SDK `1.3.1` (commit
-`4b8e517d2c815c90668e85e11b4183be4929594d`) as the `third_party/Prism-SDK` Git
-submodule. It contains the Host SDK 1.3.1 runtime/ABI 19 for Agent 1.3.0/1.3.1,
+This repository pins Prism SDK `1.4.0` (commit
+`c6d0576065a0169434c98f62970b1db9a2a80c2a`) as the `third_party/Prism-SDK` Git
+submodule. It contains the Host SDK 1.4.0 runtime/ABI 19 for Agent 1.3.x/1.4.0,
 with supported legacy 1.2.0/1.2.1 HELLO profiles.
-The pinned [SDK v1.3.1](https://github.com/DIBULI/Prism-SDK/releases/tag/v1.3.1)
+The pinned [SDK v1.4.0](https://github.com/DIBULI/Prism-SDK/releases/tag/v1.4.0)
 includes the aligned RK-local C++ API and interface guides under `docs/`.
 This pin discovers the Agent version through HELLO and reconnects once when an
 older network Agent closes its explicitly rejected handshake. ROS camera output
@@ -85,8 +85,8 @@ The supported binary mapping is:
 | x86-64 | All supported distributions | `runtime/ros/linux-x64` |
 | ARM64 | All supported distributions | `runtime/ros/linux-arm64` |
 
-Both platform payloads are part of the pinned Prism SDK `1.3.1` release and include
-the Host SDK 1.3.1 runtime (Runtime API 19), retaining `800 Hz` IMU support. The
+Both platform payloads are part of the pinned Prism SDK `1.4.0` release and include
+the Host SDK 1.4.0 runtime (Runtime API 19), retaining `800 Hz` IMU support. The
 build scripts detect x86-64 or ARM64 automatically;
 `PRISM_ROS_ARCH=arm64` can be used when building ARM64 through emulation on an
 x86-64 host. Verify the submodule and all ROS runtime prefixes with:
@@ -562,7 +562,7 @@ See [v1.2.0 breaking changes](docs/update/v1.2.0.md) before upgrading.
 
 ## Prerequisites
 
-1. This adapter pins Prism SDK `1.3.1`, compatible with Agent `1.3.0/1.3.1`.
+1. This adapter pins Prism SDK `1.4.0`, compatible with Agent `1.3.x/1.4.0`.
    Host connections also support legacy `1.2.0/1.2.1` HELLO profiles; older
    devices retain their feature limits. This client update does not require a
    device firmware update for the HELLO connection fix.
@@ -878,6 +878,7 @@ python3 scripts/verify_lidar_pointcloud_ros2.py
 ## Update notes
 
 - [Version 1.3.0 — network support, receive-loop and publication fixes](docs/update/v1.3.0.txt)
+- [Version 1.4.0 — SDK and release update](docs/update/v1.4.0.txt)
 - [Version 1.3.1 — network HELLO version negotiation](docs/update/v1.3.1.txt)
 - [Version 1.2.0](docs/update/v1.2.0.md)
 - [版本 1.2.0（中文）](docs/update/v1.2.0.zh-CN.md)

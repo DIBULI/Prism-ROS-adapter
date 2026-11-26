@@ -64,8 +64,8 @@ jobs:
 
       - name: Verify pinned release metadata
         run: |
-          test "$(cat VERSION)" = 1.3.1
-          test "$(git -C third_party/Prism-SDK rev-parse HEAD)" = 4b8e517d2c815c90668e85e11b4183be4929594d
+          test "$(cat VERSION)" = 1.4.0
+          test "$(git -C third_party/Prism-SDK rev-parse HEAD)" = c6d0576065a0169434c98f62970b1db9a2a80c2a
           test "$(cat third_party/Prism-SDK/VERSION)" = "$(cat VERSION)"
 
       - name: Verify Prism SDK submodule
@@ -242,7 +242,7 @@ jobs:
               --clobber
             gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
               --title "Prism ROS Adapter $GITHUB_REF_NAME" \
-              --notes-file docs/update/v1.3.1.txt
+              --notes-file docs/update/v1.4.0.txt
           else
             gh release create "$GITHUB_REF_NAME" \
               Prism-ROS-adapter-*.tar.gz \
@@ -250,5 +250,5 @@ jobs:
               --repo "$GITHUB_REPOSITORY" \
               --verify-tag \
               --title "Prism ROS Adapter $GITHUB_REF_NAME" --latest \
-              --notes-file docs/update/v1.3.1.txt
+              --notes-file docs/update/v1.4.0.txt
           fi

@@ -35,7 +35,7 @@ def main():
         for case in cases:
             subprocess.run([sys.executable, __file__, args.binary, '--case', case],
                            check=True, timeout=90)
-        print('PASS all published SDK1.3.1 NET/4 ROS2 loopback cases')
+        print('PASS all published SDK1.4.0 NET/4 ROS2 loopback cases')
         return
     rclpy.init()
     node = rclpy.create_node('prism_network_mock_test')
@@ -120,7 +120,7 @@ def main():
                         assert node.count_publishers('/prism/imu0/data') == 0
                         assert node.count_publishers('/prism/lidar/imu') == 0
                     assert mock.commands[6] == mock.commands[8] == 0
-                    assert mock.hello_profiles[:2] == ['1.3.1', '1.3.0'], mock.hello_profiles
+                    assert mock.hello_profiles[:2] == ['1.4.0', '1.3.0'], mock.hello_profiles
                     assert all(p == '1.3.0' for p in mock.hello_profiles[2:]), mock.hello_profiles
                     start = ControlStreams.Request()
                     start.command, start.camera, start.board_imu = 'start', True, True
@@ -175,7 +175,7 @@ def main():
                 assert mock.error is None, repr(mock.error)
                 node.destroy_client(client)
             print('PASS', case, 'commands', dict(mock.commands), 'ACKs', len(mock.acks))
-    print('PASS published SDK1.3.1 NET/4 ROS2 loopback:', dict(counts))
+    print('PASS published SDK1.4.0 NET/4 ROS2 loopback:', dict(counts))
     node.destroy_node()
     rclpy.shutdown()
 

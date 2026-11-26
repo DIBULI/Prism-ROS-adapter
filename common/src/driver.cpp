@@ -70,6 +70,7 @@ std::string adapterLidarModelName(prism::LidarModel model) {
   switch (model) {
     case prism::LidarModel::Mid360: return "mid360";
     case prism::LidarModel::Mid360S: return "mid360s";
+    case prism::LidarModel::Mid360L: return "mid360l";
     case prism::LidarModel::Xt32: return "xt32";
     case prism::LidarModel::None: return "none";
   }
