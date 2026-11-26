@@ -698,7 +698,7 @@ Important parameters:
 | `imu_sensor_count` | `0` | `0` uses detected count; normally one or two |
 | `imu_rate_hz` | `0` | `0` uses device configuration; production devices use 800 Hz |
 | `lidar_enabled` | `false` | Start and publish the configured LiDAR |
-| `lidar_model` | `mid360` | Must be `mid360`, `mid360s` or `xt32` |
+| `lidar_model` | `mid360` | Must be `mid360`, `mid360s`, `mid360l` or `xt32` |
 | `lidar_network_apply_on_start` | `false` | Compare the YAML network settings with the device and persist them before streams start |
 | `lidar_network_enabled` | `true` | Saved RK LiDAR-interface enable state; separate from `lidar_enabled` |
 | `lidar_host_ip` | `192.168.1.5` | IPv4 address assigned to the RK `end0` interface |

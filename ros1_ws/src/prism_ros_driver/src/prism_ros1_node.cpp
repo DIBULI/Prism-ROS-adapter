@@ -286,8 +286,10 @@ class PrismRos1Node {
       config.lidar_model = prism_ros_adapter::LidarModel::Xt32;
     } else if (lidar_model == "mid360s") {
       config.lidar_model = prism_ros_adapter::LidarModel::Mid360S;
+    } else if (lidar_model == "mid360l") {
+      config.lidar_model = prism_ros_adapter::LidarModel::Mid360L;
     } else {
-      throw std::invalid_argument("~lidar_model must be mid360, mid360s or xt32");
+      throw std::invalid_argument("~lidar_model must be mid360, mid360s, mid360l or xt32");
     }
     private_node_.param("lidar_network_apply_on_start",
                         config.lidar_network_apply_on_start, false);

@@ -16,6 +16,7 @@ enum class LidarModel {
   Mid360,
   Mid360S,
   Xt32,
+  Mid360L,
 };
 
 enum class LogLevel {

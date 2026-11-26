@@ -62,6 +62,7 @@ prism::LidarModel toSdkModel(LidarModel model) {
   switch (model) {
     case LidarModel::Mid360: return prism::LidarModel::Mid360;
     case LidarModel::Mid360S: return prism::LidarModel::Mid360S;
+    case LidarModel::Mid360L: return prism::LidarModel::Mid360L;
     case LidarModel::Xt32: return prism::LidarModel::Xt32;
   }
   throw std::invalid_argument("unsupported LiDAR model");

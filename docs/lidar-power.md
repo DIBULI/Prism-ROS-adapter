@@ -3,7 +3,7 @@
 Requires the Agent and SDK LiDAR power extension. Older 1.2.0 builds do not
 implement it; an unsupported command must not be treated as success.
 Select the actual attached radar using the driver's `lidar_model` parameter
-(`mid360`, `mid360s`, or `xt32`). The target address is the saved LiDAR
+(`mid360`, `mid360s`, `mid360l`, or `xt32`). The target address is the saved LiDAR
 network configuration. The network must already be configured and ready.
 
 These services never stop/resume streams for you. First explicitly stop all

@@ -32,6 +32,10 @@ struct DriverDataHealthTest {
     return "$" + body + suffix;
   }
   static void run() {
+    require(toSdkModel(LidarModel::Mid360L) == prism::LidarModel::Mid360L,
+            "MID-360L must select its own SDK start command model");
+    require(adapterLidarModelName(LidarModel::Mid360L) == "mid360l",
+            "MID-360L status must preserve the selected model");
     using S = SensorDataHealth::Stream;
     std::vector<std::string> logs;
     DriverCallbacks callbacks;
