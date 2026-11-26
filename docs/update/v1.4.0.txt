@@ -2,3 +2,4 @@ Prism ROS Adapter 1.4.0
 
 - 更新 SDK 1.4.0，兼容 Agent 1.3.x 和 1.4.0。
 - 保留 413GSV0 相机、批量 IMU、雷达与导航数据支持。
+- 修复 MID-360L 启动配置。
